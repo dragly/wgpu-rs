@@ -7,6 +7,15 @@ struct Vertex {
     _tex_coord: [f32; 2],
 }
 
+#[derive(Clone, Copy)]
+struct DrawArguments {
+    index_count: u32,
+    instance_count: u32,
+    base_index: u32,
+    vertex_offset: i32,
+    base_instance: u32,
+}
+
 fn vertex(pos: [i8; 3], tc: [i8; 2]) -> Vertex {
     Vertex {
         _pos: [pos[0] as f32, pos[1] as f32, pos[2] as f32, 1.0],
@@ -87,9 +96,14 @@ struct Example {
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
     index_count: usize,
+    draw_buf: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     uniform_buf: wgpu::Buffer,
     pipeline: wgpu::RenderPipeline,
+    compute_pipeline: wgpu::ComputePipeline,
+    compute_bind_group: wgpu::BindGroup,
+    draw_data: Vec<DrawArguments>,
+    frame_id: usize,
 }
 
 impl Example {
@@ -122,6 +136,20 @@ impl framework::Example for Example {
         let index_buf = device
             .create_buffer_mapped(index_data.len(), wgpu::BufferUsage::INDEX)
             .fill_from_slice(&index_data);
+
+        let draw_data = vec![DrawArguments{
+            index_count: index_data.len() as u32,
+            instance_count: 1,
+            base_index: 0,
+            vertex_offset: 0,
+            base_instance: 0,
+        }];
+
+        let draw_buf = device
+            .create_buffer(&wgpu::BufferDescriptor {
+                size: (draw_data.len() * std::mem::size_of::<DrawArguments>()) as wgpu::BufferAddress,
+                usage: wgpu::BufferUsage::INDIRECT | wgpu::BufferUsage::STORAGE
+            });
 
         // Create pipeline layout
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -286,6 +314,45 @@ impl framework::Example for Example {
             sample_count: 1,
         });
 
+        // Compute stuff
+        let cs_bytes =
+            framework::load_glsl(include_str!("shader.comp"), framework::ShaderStage::Compute);
+        let cs_module = device.create_shader_module(&cs_bytes);
+
+        let draw_data_size = (draw_data.len() * std::mem::size_of::<DrawArguments>()) as wgpu::BufferAddress;
+
+        let compute_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            bindings: &[wgpu::BindGroupLayoutBinding {
+                binding: 0,
+                visibility: wgpu::ShaderStage::COMPUTE,
+                ty: wgpu::BindingType::StorageBuffer,
+            }],
+        });
+
+        let compute_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &compute_bind_group_layout,
+            bindings: &[wgpu::Binding {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer {
+                    buffer: &draw_buf,
+                    range: 0 .. draw_data_size,
+                },
+            }],
+        });
+
+        let compute_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            bind_group_layouts: &[&compute_bind_group_layout],
+        });
+
+        let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            layout: &compute_pipeline_layout,
+            compute_stage: wgpu::PipelineStageDescriptor {
+                module: &cs_module,
+                entry_point: "main",
+            },
+        });
+
+
         // Done
         let init_command_buf = init_encoder.finish();
         device.get_queue().submit(&[init_command_buf]);
@@ -293,9 +360,14 @@ impl framework::Example for Example {
             vertex_buf,
             index_buf,
             index_count: index_data.len(),
+            draw_buf,
             bind_group,
             uniform_buf,
             pipeline,
+            compute_pipeline,
+            compute_bind_group,
+            draw_data,
+            frame_id: 0
         }
     }
 
@@ -320,6 +392,15 @@ impl framework::Example for Example {
     fn render(&mut self, frame: &wgpu::SwapChainOutput, device: &mut wgpu::Device) {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
+
+        let draw_data_size = (self.draw_data.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress;
+        {
+            let mut cpass = encoder.begin_compute_pass();
+            cpass.set_pipeline(&self.compute_pipeline);
+            cpass.set_bind_group(0, &self.compute_bind_group, &[]);
+            cpass.dispatch(self.draw_data.len() as u32, 1, 1);
+        }
+
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
@@ -340,8 +421,11 @@ impl framework::Example for Example {
             rpass.set_bind_group(0, &self.bind_group, &[]);
             rpass.set_index_buffer(&self.index_buf, 0);
             rpass.set_vertex_buffers(&[(&self.vertex_buf, 0)]);
-            rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 1);
+            //rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 1);
+            rpass.draw_indexed_indirect(&self.draw_buf, 0);
         }
+
+        self.frame_id += 1;
 
         device.get_queue().submit(&[encoder.finish()]);
     }
