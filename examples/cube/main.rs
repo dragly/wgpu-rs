@@ -336,7 +336,7 @@ impl framework::Example for Example {
             mipmap_filter: wgpu::FilterMode::Nearest,
             lod_min_clamp: -100.0,
             lod_max_clamp: 100.0,
-            compare_function: wgpu::CompareFunction::LessEqual,
+            compare_function: wgpu::CompareFunction::Always,
         });
 
         let occlusion_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -501,8 +501,8 @@ impl framework::Example for Example {
                 rasterization_state: wgpu::RasterizationStateDescriptor {
                     front_face: wgpu::FrontFace::Ccw,
                     cull_mode: wgpu::CullMode::Back,
-                    depth_bias: 0, // corresponds to bilinear filtering
-                    depth_bias_slope_scale: 0.0,
+                    depth_bias: 2, // corresponds to bilinear filtering
+                    depth_bias_slope_scale: 2.0,
                     depth_bias_clamp: 0.0,
                 },
                 primitive_topology: wgpu::PrimitiveTopology::TriangleList,

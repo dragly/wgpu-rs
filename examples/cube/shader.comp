@@ -26,6 +26,7 @@ layout(set = 1, binding = 0) uniform Locals {
     mat4 u_Transform;
 };
 layout(set = 1, binding = 1) uniform texture2D t_Color;
+//layout(set = 1, binding = 1) uniform sampler2D t_Color;
 layout(set = 1, binding = 2) uniform sampler s_Color;
 
 
@@ -44,9 +45,10 @@ void main() {
     //indices[i].index_count = 36;
     vec2 texCoord = vec2(position.x, position.y);
     vec4 tex = texture(sampler2D(t_Color, s_Color), texCoord);
+    //vec4 tex = texture(t_Color, texCoord);
     visibility[i] = uint(position.z < tex.r);
-    //visibility[i] = uint(position.y * 1000);
-    visibility[i] = uint(tex.r * 1000000);
+    visibility[i] = uint(position.y * 1000);
+    //visibility[i] = uint(tex.r * 1000000);
 
     barrier();
 
