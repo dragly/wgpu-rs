@@ -271,12 +271,12 @@ impl framework::Example for Example {
                 },
                 wgpu::BindGroupLayoutBinding {
                     binding: 1,
-                    visibility: wgpu::ShaderStage::FRAGMENT,
+                    visibility: wgpu::ShaderStage::FRAGMENT | wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::SampledTexture,
                 },
                 wgpu::BindGroupLayoutBinding {
                     binding: 2,
-                    visibility: wgpu::ShaderStage::FRAGMENT,
+                    visibility: wgpu::ShaderStage::FRAGMENT | wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::Sampler,
                 },
             ],
@@ -348,7 +348,16 @@ impl framework::Example for Example {
             format: Self::OCCLUSION_FORMAT,
             usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
         });
-        let occlusion_view = occlusion_texture.create_default_view();
+        let occlusion_default_view = occlusion_texture.create_default_view();
+        let occlusion_view = occlusion_texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Self::OCCLUSION_FORMAT,
+            dimension: wgpu::TextureViewDimension::D2,
+            aspect: wgpu::TextureAspectFlags::DEPTH,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer: 0,
+            array_count: 1,
+        });
 
         // Create other resources
         //let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -384,7 +393,7 @@ impl framework::Example for Example {
                 },
                 wgpu::Binding {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&occlusion_view),
+                    resource: wgpu::BindingResource::TextureView(&occlusion_default_view),
                 },
                 wgpu::Binding {
                     binding: 2,
@@ -574,20 +583,10 @@ impl framework::Example for Example {
                 wgpu::BindGroupLayoutBinding {
                     binding: 1,
                     visibility: wgpu::ShaderStage::COMPUTE,
-                    ty: wgpu::BindingType::SampledTexture,
-                },
-                wgpu::BindGroupLayoutBinding {
-                    binding: 2,
-                    visibility: wgpu::ShaderStage::COMPUTE,
-                    ty: wgpu::BindingType::Sampler,
-                },
-                wgpu::BindGroupLayoutBinding {
-                    binding: 3,
-                    visibility: wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::StorageBuffer,
                 },
                 wgpu::BindGroupLayoutBinding {
-                    binding: 4,
+                    binding: 2,
                     visibility: wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::StorageBuffer,
                 },
@@ -608,21 +607,13 @@ impl framework::Example for Example {
                 },
                 wgpu::Binding {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&occlusion_view),
-                },
-                wgpu::Binding {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&occlusion_sampler),
-                },
-                wgpu::Binding {
-                    binding: 3,
                     resource: wgpu::BindingResource::Buffer {
                         buffer: &instance_buf,
                         range: 0 .. instance_data_size,
                     },
                 },
                 wgpu::Binding {
-                    binding: 4,
+                    binding: 2,
                     resource: wgpu::BindingResource::Buffer {
                         buffer: &visibility_buf,
                         range: 0 .. visibility_data_size,
