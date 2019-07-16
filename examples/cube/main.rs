@@ -691,8 +691,8 @@ impl framework::Example for Example {
             rpass.set_bind_group(0, &self.bind_group, &[]);
             rpass.set_index_buffer(&self.index_buf, 0);
             rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.instance_buf, 0)]);
-            rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 5);
-            //rpass.draw_indexed_indirect(&self.draw_buf, 0);
+            //rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 5);
+            rpass.draw_indexed_indirect(&self.draw_buf, 0);
         }
 
         self.frame_id += 1;
