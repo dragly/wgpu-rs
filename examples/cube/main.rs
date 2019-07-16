@@ -108,16 +108,16 @@ fn create_instances() -> Vec<Instance> {
             _pos: [0.0 as f32, 0.0, -2.0],
         },
         Instance {
-            _pos: [2.5 as f32, 0.0, -2.0],
+            _pos: [2.3 as f32, 0.0, -2.0],
         },
         Instance {
-            _pos: [0.0 as f32, 2.5, -2.0],
+            _pos: [0.0 as f32, 2.6, -2.0],
         },
         Instance {
-            _pos: [2.5 as f32, 2.5, -2.0],
+            _pos: [2.1 as f32, 2.7, -2.0],
         },
         Instance {
-            _pos: [-2.5 as f32, 0.0, -2.0],
+            _pos: [-2.9 as f32, 0.0, -2.0],
         },
     ]
 }
