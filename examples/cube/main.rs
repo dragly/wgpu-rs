@@ -3,8 +3,13 @@ mod framework;
 
 #[derive(Clone, Copy)]
 struct Vertex {
-    _pos: [f32; 4],
+    _pos: [f32; 3],
     _tex_coord: [f32; 2],
+}
+
+#[derive(Clone, Copy)]
+struct Instance {
+    _pos: [f32; 3],
 }
 
 #[derive(Clone, Copy)]
@@ -16,9 +21,26 @@ struct DrawArguments {
     base_instance: u32,
 }
 
+fn create_depth_texture(device: &mut wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
+    let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+        size: wgpu::Extent3d {
+            width: width,
+            height: height,
+            depth: 1,
+        },
+        array_layer_count: 1,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::D32Float,
+        usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+    });
+    depth_texture.create_default_view()
+}
+
 fn vertex(pos: [i8; 3], tc: [i8; 2]) -> Vertex {
     Vertex {
-        _pos: [pos[0] as f32, pos[1] as f32, pos[2] as f32, 1.0],
+        _pos: [pos[0] as f32, pos[1] as f32, pos[2] as f32],
         _tex_coord: [tc[0] as f32, tc[1] as f32],
     }
 }
@@ -69,6 +91,26 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
     (vertex_data.to_vec(), index_data.to_vec())
 }
 
+fn create_instances() -> Vec<Instance> {
+    vec![
+        Instance {
+            _pos: [0.0 as f32, 0.0, 0.0],
+        },
+        Instance {
+            _pos: [2.5 as f32, 0.0, 0.0],
+        },
+        Instance {
+            _pos: [0.0 as f32, 2.5, 0.0],
+        },
+        Instance {
+            _pos: [2.5 as f32, 2.5, 0.0],
+        },
+        Instance {
+            _pos: [-2.5 as f32, 0.0, 0.0],
+        },
+    ]
+}
+
 fn create_texels(size: usize) -> Vec<u8> {
     use std::iter;
 
@@ -92,6 +134,20 @@ fn create_texels(size: usize) -> Vec<u8> {
         .collect()
 }
 
+fn create_plane(size: i8) -> (Vec<Vertex>, Vec<u16>) {
+    let vertex_data = [
+        vertex([size, -size, 0], [0, 0]),
+        vertex([size, size, 0], [0, 1]),
+        vertex([-size, -size, 0], [1, 1]),
+        vertex([-size, size, 0], [1, 0]),
+    ];
+
+    let index_data: &[u16] = &[0, 1, 2, 2, 1, 3];
+
+    (vertex_data.to_vec(), index_data.to_vec())
+}
+
+
 struct Example {
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
@@ -104,13 +160,15 @@ struct Example {
     compute_bind_group: wgpu::BindGroup,
     draw_data: Vec<DrawArguments>,
     frame_id: usize,
+    instance_buf: wgpu::Buffer,
+    depth_texture: wgpu::TextureView,
 }
 
 impl Example {
     fn generate_matrix(aspect_ratio: f32) -> cgmath::Matrix4<f32> {
-        let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 1.0, 10.0);
+        let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 1.0, 100.0);
         let mx_view = cgmath::Matrix4::look_at(
-            cgmath::Point3::new(1.5f32, -5.0, 3.0),
+            cgmath::Point3::new(5.0f32, -8.0, 3.0),
             cgmath::Point3::new(0f32, 0.0, 0.0),
             cgmath::Vector3::unit_z(),
         );
@@ -136,6 +194,21 @@ impl framework::Example for Example {
         let index_buf = device
             .create_buffer_mapped(index_data.len(), wgpu::BufferUsage::INDEX)
             .fill_from_slice(&index_data);
+
+        let instance_size = mem::size_of::<Instance>();
+        let instance_data = create_instances();
+        let instance_buf = device
+            .create_buffer_mapped(instance_data.len(), wgpu::BufferUsage::VERTEX)
+            .fill_from_slice(&instance_data);
+
+        let (plane_vertex_data, plane_index_data) = create_plane(7);
+        let plane_vertex_buf = device
+            .create_buffer_mapped(plane_vertex_data.len(), wgpu::BufferUsage::VERTEX)
+            .fill_from_slice(&plane_vertex_data);
+
+        let plane_index_buf = device
+            .create_buffer_mapped(plane_index_data.len(), wgpu::BufferUsage::INDEX)
+            .fill_from_slice(&plane_index_data);
 
         let draw_data = vec![DrawArguments{
             index_count: index_data.len() as u32,
@@ -293,21 +366,40 @@ impl framework::Example for Example {
                 alpha_blend: wgpu::BlendDescriptor::REPLACE,
                 write_mask: wgpu::ColorWrite::ALL,
             }],
-            depth_stencil_state: None,
+            depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
+                format: wgpu::TextureFormat::D32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil_front: wgpu::StencilStateFaceDescriptor::IGNORE,
+                stencil_back: wgpu::StencilStateFaceDescriptor::IGNORE,
+                stencil_read_mask: 0,
+                stencil_write_mask: 0,
+            }),
             index_format: wgpu::IndexFormat::Uint16,
             vertex_buffers: &[wgpu::VertexBufferDescriptor {
                 stride: vertex_size as wgpu::BufferAddress,
                 step_mode: wgpu::InputStepMode::Vertex,
                 attributes: &[
                     wgpu::VertexAttributeDescriptor {
-                        format: wgpu::VertexFormat::Float4,
+                        format: wgpu::VertexFormat::Float3,
                         offset: 0,
                         shader_location: 0,
                     },
                     wgpu::VertexAttributeDescriptor {
                         format: wgpu::VertexFormat::Float2,
-                        offset: 4 * 4,
+                        offset: 4 * 3,
                         shader_location: 1,
+                    },
+                ],
+            },
+            wgpu::VertexBufferDescriptor {
+                stride: instance_size as wgpu::BufferAddress,
+                step_mode: wgpu::InputStepMode::Instance,
+                attributes: &[
+                    wgpu::VertexAttributeDescriptor {
+                        format: wgpu::VertexFormat::Float3,
+                        offset: 0,
+                        shader_location: 2,
                     },
                 ],
             }],
@@ -352,6 +444,7 @@ impl framework::Example for Example {
             },
         });
 
+        let depth_texture = create_depth_texture(device, sc_desc.width, sc_desc.height);
 
         // Done
         let init_command_buf = init_encoder.finish();
@@ -367,7 +460,9 @@ impl framework::Example for Example {
             compute_pipeline,
             compute_bind_group,
             draw_data,
-            frame_id: 0
+            frame_id: 0,
+            instance_buf,
+            depth_texture,
         }
     }
 
@@ -387,6 +482,7 @@ impl framework::Example for Example {
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
         encoder.copy_buffer_to_buffer(&temp_buf, 0, &self.uniform_buf, 0, 64);
         device.get_queue().submit(&[encoder.finish()]);
+        self.depth_texture = create_depth_texture(device, sc_desc.width, sc_desc.height);
     }
 
     fn render(&mut self, frame: &wgpu::SwapChainOutput, device: &mut wgpu::Device) {
@@ -415,12 +511,20 @@ impl framework::Example for Example {
                         a: 1.0,
                     },
                 }],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
+                        attachment: &self.depth_texture,
+                        depth_load_op: wgpu::LoadOp::Clear,
+                        depth_store_op: wgpu::StoreOp::Store,
+                        stencil_load_op: wgpu::LoadOp::Clear,
+                        stencil_store_op: wgpu::StoreOp::Store,
+                        clear_depth: 1.0,
+                        clear_stencil: 0,
+                }),
             });
             rpass.set_pipeline(&self.pipeline);
             rpass.set_bind_group(0, &self.bind_group, &[]);
             rpass.set_index_buffer(&self.index_buf, 0);
-            rpass.set_vertex_buffers(&[(&self.vertex_buf, 0)]);
+            rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.instance_buf, 0)]);
             //rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 1);
             rpass.draw_indexed_indirect(&self.draw_buf, 0);
         }
