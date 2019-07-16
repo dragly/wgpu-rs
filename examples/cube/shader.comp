@@ -36,15 +36,17 @@ void main() {
 
     // TODO verify projection
     vec4 position = u_Transform * vec4(instance.position, 1.0);
-    position.z = max(position.z, 0);
     position.xyz /= position.w;
     position.xy = clamp(position.xy, -1, 1);
+    position.z = clamp(position.z, 0, 1);
     // map from clip to texture
-    position.xy = position.xy * vec2(0.5, -0.5) + vec2(0.5, 0.5);
+    position.xy = position.xy * vec2(0.5, 0.5) + vec2(0.5, 0.5);
     //indices[i].index_count = 36;
     vec2 texCoord = vec2(position.x, position.y);
     vec4 tex = texture(sampler2D(t_Color, s_Color), texCoord);
-    visibility[i] = uint(position.z >= tex.r);
+    visibility[i] = uint(position.z < tex.r);
+    visibility[i] = uint(position.y * 1000);
+    //visibility[i] = uint(tex.r * 1000000);
 
     barrier();
 
@@ -54,8 +56,8 @@ void main() {
             instanceCount += visibility[i];
         }
         indices[0].index_count = 36;
-        indices[0].instance_count = instanceCount;
-        //indices[0].instance_count = 5;
+        //indices[0].instance_count = instanceCount;
+        indices[0].instance_count = 5;
         indices[0].base_index = 0;
         indices[0].vertex_offset = 0;
         indices[0].base_instance = 0;

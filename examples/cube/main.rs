@@ -105,19 +105,19 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
 fn create_instances() -> Vec<Instance> {
     vec![
         Instance {
-            _pos: [0.0 as f32, 0.0, 0.0],
+            _pos: [0.0 as f32, 0.0, -2.0],
         },
         Instance {
-            _pos: [2.5 as f32, 0.0, 0.0],
+            _pos: [2.5 as f32, 0.0, -2.0],
         },
         Instance {
-            _pos: [0.0 as f32, 2.5, 0.0],
+            _pos: [0.0 as f32, 2.5, -2.0],
         },
         Instance {
-            _pos: [2.5 as f32, 2.5, 0.0],
+            _pos: [2.5 as f32, 2.5, -2.0],
         },
         Instance {
-            _pos: [-2.5 as f32, 0.0, 0.0],
+            _pos: [-2.5 as f32, 0.0, -2.0],
         },
     ]
 }
@@ -189,7 +189,7 @@ impl Example {
     };
 
     fn generate_matrix(aspect_ratio: f32) -> cgmath::Matrix4<f32> {
-        let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 1.0, 100.0);
+        let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 1.0, 20.0);
         let mx_view = cgmath::Matrix4::look_at(
             cgmath::Point3::new(5.0f32, -8.0, 1.0),
             cgmath::Point3::new(0f32, 0.0, 0.0),
