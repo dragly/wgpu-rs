@@ -189,7 +189,7 @@ impl Example {
     };
 
     fn generate_matrix(aspect_ratio: f32) -> cgmath::Matrix4<f32> {
-        let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 1.0, 20.0);
+        let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 1.0, 100.0);
         let mx_view = cgmath::Matrix4::look_at(
             cgmath::Point3::new(5.0f32, -8.0, 1.0),
             cgmath::Point3::new(0f32, 0.0, 0.0),
@@ -759,7 +759,7 @@ impl framework::Example for Example {
         let temp_buf = device
             .create_buffer(&wgpu::BufferDescriptor {
                 size: self.visibility_data_size,
-                usage: wgpu::BufferUsage::TRANSFER_DST
+                usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
             });
         encoder.copy_buffer_to_buffer(&self.visibility_buf, 0, &temp_buf, 0, self.visibility_data_size);
 
