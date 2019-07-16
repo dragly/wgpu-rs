@@ -21,6 +21,17 @@ struct DrawArguments {
     base_instance: u32,
 }
 
+#[repr(C)]
+struct ShadowUniforms {
+    proj: [[f32; 4]; 4],
+}
+
+struct Pass {
+    pipeline: wgpu::RenderPipeline,
+    bind_group: wgpu::BindGroup,
+    uniform_buf: wgpu::Buffer,
+}
+
 fn create_depth_texture(device: &mut wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
     let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
         size: wgpu::Extent3d {
@@ -162,9 +173,17 @@ struct Example {
     frame_id: usize,
     instance_buf: wgpu::Buffer,
     depth_texture: wgpu::TextureView,
+    occlusion_pass: wgpu::RenderPipeline,
 }
 
 impl Example {
+    const OCCLUSION_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::D32Float;
+    const OCCLUSION_SIZE: wgpu::Extent3d = wgpu::Extent3d {
+        width: 512,
+        height: 512,
+        depth: 1,
+    };
+
     fn generate_matrix(aspect_ratio: f32) -> cgmath::Matrix4<f32> {
         let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 1.0, 100.0);
         let mx_view = cgmath::Matrix4::look_at(
@@ -289,6 +308,30 @@ impl framework::Example for Example {
             texture_extent,
         );
 
+        // Occlusion texture
+        let occlusion_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            lod_min_clamp: -100.0,
+            lod_max_clamp: 100.0,
+            compare_function: wgpu::CompareFunction::LessEqual,
+        });
+
+        let occlusion_texture = device.create_texture(&wgpu::TextureDescriptor {
+            size: Self::OCCLUSION_SIZE,
+            array_layer_count: 1,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: Self::OCCLUSION_FORMAT,
+            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
+        });
+        let occlusion_view = occlusion_texture.create_default_view();
+
         // Create other resources
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -341,6 +384,86 @@ impl framework::Example for Example {
         );
         let vs_module = device.create_shader_module(&vs_bytes);
         let fs_module = device.create_shader_module(&fs_bytes);
+
+        let occlusion_pass = {
+            // Create pipeline layout
+            let bind_group_layout =
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    bindings: &[wgpu::BindGroupLayoutBinding {
+                        binding: 0, // global
+                        visibility: wgpu::ShaderStage::VERTEX,
+                        ty: wgpu::BindingType::UniformBuffer,
+                    }],
+                });
+            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                bind_group_layouts: &[&bind_group_layout, &local_bind_group_layout],
+            });
+
+            let uniform_size = mem::size_of::<OcclusionUniforms>() as wgpu::BufferAddress;
+            let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
+                size: uniform_size,
+                usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::TRANSFER_DST,
+            });
+
+            // Create bind group
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &bind_group_layout,
+                bindings: &[wgpu::Binding {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer {
+                        buffer: &uniform_buf,
+                        range: 0 .. uniform_size,
+                    },
+                }],
+            });
+
+            // Create the render pipeline
+            let vs_bytes =
+                framework::load_glsl(include_str!("bake.vert"), framework::ShaderStage::Vertex);
+            let fs_bytes =
+                framework::load_glsl(include_str!("bake.frag"), framework::ShaderStage::Fragment);
+            let vs_module = device.create_shader_module(&vs_bytes);
+            let fs_module = device.create_shader_module(&fs_bytes);
+
+            let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                layout: &pipeline_layout,
+                vertex_stage: wgpu::PipelineStageDescriptor {
+                    module: &vs_module,
+                    entry_point: "main",
+                },
+                fragment_stage: Some(wgpu::PipelineStageDescriptor {
+                    module: &fs_module,
+                    entry_point: "main",
+                }),
+                rasterization_state: wgpu::RasterizationStateDescriptor {
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: wgpu::CullMode::Back,
+                    depth_bias: 2, // corresponds to bilinear filtering
+                    depth_bias_slope_scale: 2.0,
+                    depth_bias_clamp: 0.0,
+                },
+                primitive_topology: wgpu::PrimitiveTopology::TriangleList,
+                color_states: &[],
+                depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
+                    format: Self::OCCLUSION_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil_front: wgpu::StencilStateFaceDescriptor::IGNORE,
+                    stencil_back: wgpu::StencilStateFaceDescriptor::IGNORE,
+                    stencil_read_mask: 0,
+                    stencil_write_mask: 0,
+                }),
+                index_format: wgpu::IndexFormat::Uint16,
+                vertex_buffers: &[vb_desc.clone()],
+                sample_count: 1,
+            });
+
+            Pass {
+                pipeline,
+                bind_group,
+                uniform_buf,
+            }
+        };
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             layout: &pipeline_layout,
@@ -463,6 +586,8 @@ impl framework::Example for Example {
             frame_id: 0,
             instance_buf,
             depth_texture,
+            occlusion_pass,
+            occlusion_texture,
         }
     }
 
@@ -488,6 +613,29 @@ impl framework::Example for Example {
     fn render(&mut self, frame: &wgpu::SwapChainOutput, device: &mut wgpu::Device) {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
+
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
+                    attachment: &light.target_view,
+                    depth_load_op: wgpu::LoadOp::Clear,
+                    depth_store_op: wgpu::StoreOp::Store,
+                    stencil_load_op: wgpu::LoadOp::Clear,
+                    stencil_store_op: wgpu::StoreOp::Store,
+                    clear_depth: 1.0,
+                    clear_stencil: 0,
+                }),
+            });
+            pass.set_pipeline(&self.shadow_pass.pipeline);
+            pass.set_bind_group(0, &self.shadow_pass.bind_group, &[]);
+
+            // TODO replace with occluders
+            pass.set_bind_group(1, &self.bind_group, &[]);
+            pass.set_index_buffer(&self.index_buf, 0);
+            pass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.instance_buf, 0)]);
+            pass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 5);
+        }
 
         let draw_data_size = (self.draw_data.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress;
         {
