@@ -1,0 +1,23 @@
+#version 450
+
+struct DrawArguments {
+    uint index_count;
+    uint instance_count;
+    uint base_index;
+    int vertex_offset;
+    uint base_instance;
+};
+
+layout(set = 0, binding = 0) buffer PrimeIndices {
+    DrawArguments[] indices;
+}; // this is used as both input and output for convenience
+
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    indices[i].index_count = 36;
+    indices[i].instance_count = 2;
+    indices[i].base_index = 0;
+    indices[i].vertex_offset = 0;
+    indices[i].base_instance = 0;
+}
