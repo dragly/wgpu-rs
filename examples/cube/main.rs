@@ -573,9 +573,15 @@ impl framework::Example for Example {
                     visibility: wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::Sampler,
                 },
+                wgpu::BindGroupLayoutBinding {
+                    binding: 3,
+                    visibility: wgpu::ShaderStage::COMPUTE,
+                    ty: wgpu::BindingType::StorageBuffer,
+                },
             ],
         });
 
+        let instance_data_size = (instance_data.len() * instance_size) as wgpu::BufferAddress;
         let compute_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &compute_bind_group_layout,
             bindings: &[
@@ -593,6 +599,13 @@ impl framework::Example for Example {
                 wgpu::Binding {
                     binding: 2,
                     resource: wgpu::BindingResource::Sampler(&occlusion_sampler),
+                },
+                wgpu::Binding {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Buffer {
+                        buffer: &instance_buf,
+                        range: 0 .. instance_data_size,
+                    },
                 },
             ],
 
