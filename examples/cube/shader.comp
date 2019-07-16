@@ -17,9 +17,9 @@ layout(set = 0, binding = 0) buffer PrimeIndices {
 }; // this is used as both input and output for convenience
 layout(set = 0, binding = 1) uniform texture2D t_Color;
 layout(set = 0, binding = 2) uniform sampler s_Color;
-//layout(set = 0, binding = 3) buffer Instances {
-    //Instance[] instances;
-//};
+layout(set = 0, binding = 3) buffer Instances {
+    Instance[] instances;
+};
 
 
 void main() {
