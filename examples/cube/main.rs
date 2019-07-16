@@ -656,13 +656,12 @@ impl framework::Example for Example {
             pass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 5);
         }
 
-        //let draw_data_size = (self.draw_data.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress;
-        //{
-            //let mut cpass = encoder.begin_compute_pass();
-            //cpass.set_pipeline(&self.compute_pipeline);
-            //cpass.set_bind_group(0, &self.compute_bind_group, &[]);
-            //cpass.dispatch(self.draw_data.len() as u32, 1, 1);
-        //}
+        {
+            let mut cpass = encoder.begin_compute_pass();
+            cpass.set_pipeline(&self.compute_pipeline);
+            cpass.set_bind_group(0, &self.compute_bind_group, &[]);
+            cpass.dispatch(self.draw_data.len() as u32, 1, 1);
+        }
 
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
