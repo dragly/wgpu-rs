@@ -20,16 +20,44 @@ layout(set = 0, binding = 2) uniform sampler s_Color;
 layout(set = 0, binding = 3) buffer Instances {
     Instance[] instances;
 };
+layout(set = 0, binding = 4) buffer Visibility {
+    uint[] visibility;
+};
+
+layout(set = 1, binding = 0) uniform Locals {
+    mat4 u_Transform;
+};
 
 
 void main() {
     uint i = gl_GlobalInvocationID.x;
+    Instance instance = instances[i];
+
+
+    // TODO verify projection
+    vec4 position = u_Transform * vec4(instance.position, 1.0);
+    position.z = max(position.z, 0);
+    position.xyz /= position.w;
+    position.xy = clamp(position.xy, -1, 1);
+    // map from clip to texture
+    position.xy = position.xy * vec2(0.5, 0.5) + vec2(0.5, 0.5);
     //indices[i].index_count = 36;
-    vec2 texCoord = vec2(0.5, 0.5);
+    vec2 texCoord = vec2(position.x, position.y);
     vec4 tex = texture(sampler2D(t_Color, s_Color), texCoord);
-    indices[i].index_count = uint(tex.r * 36);
-    indices[i].instance_count = 2;
-    indices[i].base_index = 0;
-    indices[i].vertex_offset = 0;
-    indices[i].base_instance = 0;
+    visibility[i] = uint(position.z >= tex.r);
+
+    barrier();
+
+    if (gl_GlobalInvocationID.x == 0) {
+        uint instanceCount = 0;
+        for (int i = 0; i < 5; i++) {
+            instanceCount += visibility[i];
+        }
+        indices[0].index_count = 36;
+        indices[0].instance_count = instanceCount;
+        //indices[0].instance_count = 5;
+        indices[0].base_index = 0;
+        indices[0].vertex_offset = 0;
+        indices[0].base_instance = 0;
+    }
 }

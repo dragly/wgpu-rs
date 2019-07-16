@@ -172,9 +172,12 @@ struct Example {
     draw_data: Vec<DrawArguments>,
     frame_id: usize,
     instance_buf: wgpu::Buffer,
+    instance_count: usize,
     depth_texture: wgpu::TextureView,
     occlusion_pass: Pass,
     occlusion_texture: wgpu::TextureView,
+    visibility_buf: wgpu::Buffer,
+    visibility_data_size: wgpu::BufferAddress,
 }
 
 impl Example {
@@ -188,7 +191,7 @@ impl Example {
     fn generate_matrix(aspect_ratio: f32) -> cgmath::Matrix4<f32> {
         let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 1.0, 100.0);
         let mx_view = cgmath::Matrix4::look_at(
-            cgmath::Point3::new(5.0f32, -8.0, 3.0),
+            cgmath::Point3::new(5.0f32, -8.0, 1.0),
             cgmath::Point3::new(0f32, 0.0, 0.0),
             cgmath::Vector3::unit_z(),
         );
@@ -218,8 +221,13 @@ impl framework::Example for Example {
         let instance_size = mem::size_of::<Instance>();
         let instance_data = create_instances();
         let instance_buf = device
-            .create_buffer_mapped(instance_data.len(), wgpu::BufferUsage::VERTEX)
+            .create_buffer_mapped(instance_data.len(), wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::STORAGE)
             .fill_from_slice(&instance_data);
+
+        let visibility_data = vec![0 as u32, 0, 0, 0, 0];
+        let visibility_buf = device
+            .create_buffer_mapped(visibility_data.len(), wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::TRANSFER_SRC)
+            .fill_from_slice(&visibility_data);
 
         let (plane_vertex_data, plane_index_data) = create_plane(7);
         let plane_vertex_buf = device
@@ -230,14 +238,14 @@ impl framework::Example for Example {
             .create_buffer_mapped(plane_index_data.len(), wgpu::BufferUsage::INDEX)
             .fill_from_slice(&plane_index_data);
 
-        let local_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                bindings: &[wgpu::BindGroupLayoutBinding {
-                    binding: 0,
-                    visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::UniformBuffer,
-                }],
-            });
+        //let local_bind_group_layout =
+            //device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                //bindings: &[wgpu::BindGroupLayoutBinding {
+                    //binding: 0,
+                    //visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT | wgpu::ShaderStage::COMPUTE,
+                    //ty: wgpu::BindingType::UniformBuffer,
+                //}],
+            //});
 
         let draw_data = vec![DrawArguments{
             index_count: index_data.len() as u32,
@@ -258,7 +266,7 @@ impl framework::Example for Example {
             bindings: &[
                 wgpu::BindGroupLayoutBinding {
                     binding: 0,
-                    visibility: wgpu::ShaderStage::VERTEX,
+                    visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::UniformBuffer,
                 },
                 wgpu::BindGroupLayoutBinding {
@@ -578,10 +586,16 @@ impl framework::Example for Example {
                     visibility: wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::StorageBuffer,
                 },
+                wgpu::BindGroupLayoutBinding {
+                    binding: 4,
+                    visibility: wgpu::ShaderStage::COMPUTE,
+                    ty: wgpu::BindingType::StorageBuffer,
+                },
             ],
         });
 
         let instance_data_size = (instance_data.len() * instance_size) as wgpu::BufferAddress;
+        let visibility_data_size = (visibility_data.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress;
         let compute_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &compute_bind_group_layout,
             bindings: &[
@@ -607,12 +621,19 @@ impl framework::Example for Example {
                         range: 0 .. instance_data_size,
                     },
                 },
+                wgpu::Binding {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Buffer {
+                        buffer: &visibility_buf,
+                        range: 0 .. visibility_data_size,
+                    },
+                },
             ],
 
         });
 
         let compute_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            bind_group_layouts: &[&compute_bind_group_layout],
+            bind_group_layouts: &[&compute_bind_group_layout, &bind_group_layout],
         });
 
         let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -641,9 +662,12 @@ impl framework::Example for Example {
             draw_data,
             frame_id: 0,
             instance_buf,
+            instance_count: instance_data.len(),
             depth_texture,
             occlusion_pass,
             occlusion_texture: occlusion_view,
+            visibility_buf,
+            visibility_data_size,
         }
     }
 
@@ -696,7 +720,9 @@ impl framework::Example for Example {
             let mut cpass = encoder.begin_compute_pass();
             cpass.set_pipeline(&self.compute_pipeline);
             cpass.set_bind_group(0, &self.compute_bind_group, &[]);
-            cpass.dispatch(self.draw_data.len() as u32, 1, 1);
+            cpass.set_bind_group(1, &self.bind_group, &[]);
+            //cpass.dispatch(self.draw_data.len() as u32, 1, 1);
+            cpass.dispatch(self.instance_count as u32, 1, 1);
         }
 
         {
@@ -730,10 +756,22 @@ impl framework::Example for Example {
             //rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 5);
             rpass.draw_indexed_indirect(&self.draw_buf, 0);
         }
+        let temp_buf = device
+            .create_buffer(&wgpu::BufferDescriptor {
+                size: self.visibility_data_size,
+                usage: wgpu::BufferUsage::TRANSFER_DST
+            });
+        encoder.copy_buffer_to_buffer(&self.visibility_buf, 0, &temp_buf, 0, self.visibility_data_size);
 
         self.frame_id += 1;
 
         device.get_queue().submit(&[encoder.finish()]);
+
+        temp_buf.map_read_async(0, self.visibility_data_size, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
+            if let Ok(mapping) = result {
+                println!("Times: {:?}", mapping.data);
+            }
+        });
     }
 }
 
