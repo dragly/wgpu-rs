@@ -22,7 +22,7 @@ struct DrawArguments {
 }
 
 #[repr(C)]
-struct ShadowUniforms {
+struct OcclusionUniforms {
     proj: [[f32; 4]; 4],
 }
 
@@ -173,7 +173,8 @@ struct Example {
     frame_id: usize,
     instance_buf: wgpu::Buffer,
     depth_texture: wgpu::TextureView,
-    occlusion_pass: wgpu::RenderPipeline,
+    occlusion_pass: Pass,
+    occlusion_texture: wgpu::TextureView,
 }
 
 impl Example {
@@ -229,6 +230,15 @@ impl framework::Example for Example {
             .create_buffer_mapped(plane_index_data.len(), wgpu::BufferUsage::INDEX)
             .fill_from_slice(&plane_index_data);
 
+        let local_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                bindings: &[wgpu::BindGroupLayoutBinding {
+                    binding: 0,
+                    visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
+                    ty: wgpu::BindingType::UniformBuffer,
+                }],
+            });
+
         let draw_data = vec![DrawArguments{
             index_count: index_data.len() as u32,
             instance_count: 1,
@@ -268,45 +278,45 @@ impl framework::Example for Example {
         });
 
         // Create the texture
-        let size = 256u32;
-        let texels = create_texels(size as usize);
-        let texture_extent = wgpu::Extent3d {
-            width: size,
-            height: size,
-            depth: 1,
-        };
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            size: texture_extent,
-            array_layer_count: 1,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::TRANSFER_DST,
-        });
-        let texture_view = texture.create_default_view();
-        let temp_buf = device
-            .create_buffer_mapped(texels.len(), wgpu::BufferUsage::TRANSFER_SRC)
-            .fill_from_slice(&texels);
-        init_encoder.copy_buffer_to_texture(
-            wgpu::BufferCopyView {
-                buffer: &temp_buf,
-                offset: 0,
-                row_pitch: 4 * size,
-                image_height: size,
-            },
-            wgpu::TextureCopyView {
-                texture: &texture,
-                mip_level: 0,
-                array_layer: 0,
-                origin: wgpu::Origin3d {
-                    x: 0.0,
-                    y: 0.0,
-                    z: 0.0,
-                },
-            },
-            texture_extent,
-        );
+        //let size = 256u32;
+        //let texels = create_texels(size as usize);
+        //let texture_extent = wgpu::Extent3d {
+            //width: size,
+            //height: size,
+            //depth: 1,
+        //};
+        //let texture = device.create_texture(&wgpu::TextureDescriptor {
+            //size: texture_extent,
+            //array_layer_count: 1,
+            //mip_level_count: 1,
+            //sample_count: 1,
+            //dimension: wgpu::TextureDimension::D2,
+            //format: wgpu::TextureFormat::Rgba8Unorm,
+            //usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::TRANSFER_DST,
+        //});
+        //let texture_view = texture.create_default_view();
+        //let temp_buf = device
+            //.create_buffer_mapped(texels.len(), wgpu::BufferUsage::TRANSFER_SRC)
+            //.fill_from_slice(&texels);
+        //init_encoder.copy_buffer_to_texture(
+            //wgpu::BufferCopyView {
+                //buffer: &temp_buf,
+                //offset: 0,
+                //row_pitch: 4 * size,
+                //image_height: size,
+            //},
+            //wgpu::TextureCopyView {
+                //texture: &texture,
+                //mip_level: 0,
+                //array_layer: 0,
+                //origin: wgpu::Origin3d {
+                    //x: 0.0,
+                    //y: 0.0,
+                    //z: 0.0,
+                //},
+            //},
+            //texture_extent,
+        //);
 
         // Occlusion texture
         let occlusion_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -333,17 +343,17 @@ impl framework::Example for Example {
         let occlusion_view = occlusion_texture.create_default_view();
 
         // Create other resources
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            lod_min_clamp: -100.0,
-            lod_max_clamp: 100.0,
-            compare_function: wgpu::CompareFunction::Always,
-        });
+        //let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            //address_mode_u: wgpu::AddressMode::ClampToEdge,
+            //address_mode_v: wgpu::AddressMode::ClampToEdge,
+            //address_mode_w: wgpu::AddressMode::ClampToEdge,
+            //mag_filter: wgpu::FilterMode::Nearest,
+            //min_filter: wgpu::FilterMode::Linear,
+            //mipmap_filter: wgpu::FilterMode::Nearest,
+            //lod_min_clamp: -100.0,
+            //lod_max_clamp: 100.0,
+            //compare_function: wgpu::CompareFunction::Always,
+        //});
         let mx_total = Self::generate_matrix(sc_desc.width as f32 / sc_desc.height as f32);
         let mx_ref: &[f32; 16] = mx_total.as_ref();
         let uniform_buf = device
@@ -366,11 +376,11 @@ impl framework::Example for Example {
                 },
                 wgpu::Binding {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                    resource: wgpu::BindingResource::TextureView(&occlusion_view),
                 },
                 wgpu::Binding {
                     binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
+                    resource: wgpu::BindingResource::Sampler(&occlusion_sampler),
                 },
             ],
         });
@@ -385,6 +395,35 @@ impl framework::Example for Example {
         let vs_module = device.create_shader_module(&vs_bytes);
         let fs_module = device.create_shader_module(&fs_bytes);
 
+
+        let vb_desc = [wgpu::VertexBufferDescriptor {
+            stride: vertex_size as wgpu::BufferAddress,
+            step_mode: wgpu::InputStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttributeDescriptor {
+                    format: wgpu::VertexFormat::Float3,
+                    offset: 0,
+                    shader_location: 0,
+                },
+                wgpu::VertexAttributeDescriptor {
+                    format: wgpu::VertexFormat::Float2,
+                    offset: 4 * 3,
+                    shader_location: 1,
+                },
+            ],
+        },
+        wgpu::VertexBufferDescriptor {
+            stride: instance_size as wgpu::BufferAddress,
+            step_mode: wgpu::InputStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttributeDescriptor {
+                    format: wgpu::VertexFormat::Float3,
+                    offset: 0,
+                    shader_location: 2,
+                },
+            ],
+        }];
+
         let occlusion_pass = {
             // Create pipeline layout
             let bind_group_layout =
@@ -396,14 +435,21 @@ impl framework::Example for Example {
                     }],
                 });
             let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                bind_group_layouts: &[&bind_group_layout, &local_bind_group_layout],
+                bind_group_layouts: &[&bind_group_layout],
             });
 
             let uniform_size = mem::size_of::<OcclusionUniforms>() as wgpu::BufferAddress;
-            let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
-                size: uniform_size,
-                usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::TRANSFER_DST,
-            });
+
+            let uniform_buf = device
+                .create_buffer_mapped(
+                    16,
+                    wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::TRANSFER_DST,
+                )
+                .fill_from_slice(mx_ref);
+            //let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
+                //size: uniform_size,
+                //usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::TRANSFER_DST,
+            //});
 
             // Create bind group
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -419,9 +465,9 @@ impl framework::Example for Example {
 
             // Create the render pipeline
             let vs_bytes =
-                framework::load_glsl(include_str!("bake.vert"), framework::ShaderStage::Vertex);
+                framework::load_glsl(include_str!("occlusion.vert"), framework::ShaderStage::Vertex);
             let fs_bytes =
-                framework::load_glsl(include_str!("bake.frag"), framework::ShaderStage::Fragment);
+                framework::load_glsl(include_str!("occlusion.frag"), framework::ShaderStage::Fragment);
             let vs_module = device.create_shader_module(&vs_bytes);
             let fs_module = device.create_shader_module(&fs_bytes);
 
@@ -438,8 +484,8 @@ impl framework::Example for Example {
                 rasterization_state: wgpu::RasterizationStateDescriptor {
                     front_face: wgpu::FrontFace::Ccw,
                     cull_mode: wgpu::CullMode::Back,
-                    depth_bias: 2, // corresponds to bilinear filtering
-                    depth_bias_slope_scale: 2.0,
+                    depth_bias: 0, // corresponds to bilinear filtering
+                    depth_bias_slope_scale: 0.0,
                     depth_bias_clamp: 0.0,
                 },
                 primitive_topology: wgpu::PrimitiveTopology::TriangleList,
@@ -454,7 +500,7 @@ impl framework::Example for Example {
                     stencil_write_mask: 0,
                 }),
                 index_format: wgpu::IndexFormat::Uint16,
-                vertex_buffers: &[vb_desc.clone()],
+                vertex_buffers: &vb_desc,
                 sample_count: 1,
             });
 
@@ -499,33 +545,7 @@ impl framework::Example for Example {
                 stencil_write_mask: 0,
             }),
             index_format: wgpu::IndexFormat::Uint16,
-            vertex_buffers: &[wgpu::VertexBufferDescriptor {
-                stride: vertex_size as wgpu::BufferAddress,
-                step_mode: wgpu::InputStepMode::Vertex,
-                attributes: &[
-                    wgpu::VertexAttributeDescriptor {
-                        format: wgpu::VertexFormat::Float3,
-                        offset: 0,
-                        shader_location: 0,
-                    },
-                    wgpu::VertexAttributeDescriptor {
-                        format: wgpu::VertexFormat::Float2,
-                        offset: 4 * 3,
-                        shader_location: 1,
-                    },
-                ],
-            },
-            wgpu::VertexBufferDescriptor {
-                stride: instance_size as wgpu::BufferAddress,
-                step_mode: wgpu::InputStepMode::Instance,
-                attributes: &[
-                    wgpu::VertexAttributeDescriptor {
-                        format: wgpu::VertexFormat::Float3,
-                        offset: 0,
-                        shader_location: 2,
-                    },
-                ],
-            }],
+            vertex_buffers: &vb_desc,
             sample_count: 1,
         });
 
@@ -587,7 +607,7 @@ impl framework::Example for Example {
             instance_buf,
             depth_texture,
             occlusion_pass,
-            occlusion_texture,
+            occlusion_texture: occlusion_view,
         }
     }
 
@@ -618,7 +638,7 @@ impl framework::Example for Example {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                    attachment: &light.target_view,
+                    attachment: &self.occlusion_texture,
                     depth_load_op: wgpu::LoadOp::Clear,
                     depth_store_op: wgpu::StoreOp::Store,
                     stencil_load_op: wgpu::LoadOp::Clear,
@@ -627,23 +647,22 @@ impl framework::Example for Example {
                     clear_stencil: 0,
                 }),
             });
-            pass.set_pipeline(&self.shadow_pass.pipeline);
-            pass.set_bind_group(0, &self.shadow_pass.bind_group, &[]);
+            pass.set_pipeline(&self.occlusion_pass.pipeline);
+            pass.set_bind_group(0, &self.occlusion_pass.bind_group, &[]);
 
             // TODO replace with occluders
-            pass.set_bind_group(1, &self.bind_group, &[]);
             pass.set_index_buffer(&self.index_buf, 0);
             pass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.instance_buf, 0)]);
             pass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 5);
         }
 
-        let draw_data_size = (self.draw_data.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress;
-        {
-            let mut cpass = encoder.begin_compute_pass();
-            cpass.set_pipeline(&self.compute_pipeline);
-            cpass.set_bind_group(0, &self.compute_bind_group, &[]);
-            cpass.dispatch(self.draw_data.len() as u32, 1, 1);
-        }
+        //let draw_data_size = (self.draw_data.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress;
+        //{
+            //let mut cpass = encoder.begin_compute_pass();
+            //cpass.set_pipeline(&self.compute_pipeline);
+            //cpass.set_bind_group(0, &self.compute_bind_group, &[]);
+            //cpass.dispatch(self.draw_data.len() as u32, 1, 1);
+        //}
 
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -673,8 +692,8 @@ impl framework::Example for Example {
             rpass.set_bind_group(0, &self.bind_group, &[]);
             rpass.set_index_buffer(&self.index_buf, 0);
             rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.instance_buf, 0)]);
-            //rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 1);
-            rpass.draw_indexed_indirect(&self.draw_buf, 0);
+            rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 5);
+            //rpass.draw_indexed_indirect(&self.draw_buf, 0);
         }
 
         self.frame_id += 1;
