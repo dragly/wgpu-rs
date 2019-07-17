@@ -1,3 +1,5 @@
+use std::f64::consts::PI;
+
 #[path = "../framework.rs"]
 mod framework;
 
@@ -179,8 +181,8 @@ struct Example {
     visibility_buf: wgpu::Buffer,
     visibility_data_size: wgpu::BufferAddress,
     yaw: f32,
-    width: i32,
-    height: i32,
+    width: u32,
+    height: u32,
 }
 
 impl Example {
@@ -208,7 +210,7 @@ impl Example {
             cgmath::Vector3::unit_z(),
         );
 
-        let mx_correction = OPENGL_TO_WGPU_MATRIX;
+        let mx_correction = framework::OPENGL_TO_WGPU_MATRIX;
 
         mx_correction * mx_projection * mx_view
     }
@@ -385,7 +387,7 @@ impl framework::Example for Example {
             //lod_max_clamp: 100.0,
             //compare_function: wgpu::CompareFunction::Always,
         //});
-        let mx_total = Self::generate_matrix(sc_desc.width as f32 / sc_desc.height as f32);
+        let mx_total = Self::generate_matrix(sc_desc.width as f32 / sc_desc.height as f32, 0.0, 0.0);
         let mx_ref: &[f32; 16] = mx_total.as_ref();
         let uniform_buf = device
             .create_buffer_mapped(
@@ -674,6 +676,8 @@ impl framework::Example for Example {
             visibility_buf,
             visibility_data_size,
             yaw: 1.1,
+            width: sc_desc.width,
+            height: sc_desc.height,
         }
     }
 
@@ -688,10 +692,10 @@ impl framework::Example for Example {
     }
 
     fn render(&mut self, frame: &wgpu::SwapChainOutput, device: &mut wgpu::Device) {
-        let mx_total = Self::generate_matrix(sc_desc.width as f32 / sc_desc.height as f32, self.yaw, 1.0);
+        let mx_total = Self::generate_matrix(self.width as f32 / self.height as f32, self.yaw, (PI / 2.0) as f32);
         let mx_ref: &[f32; 16] = mx_total.as_ref();
 
-        self.yaw += 0.1;
+        self.yaw += 0.01;
 
         let temp_buf = device
             .create_buffer_mapped(16, wgpu::BufferUsage::TRANSFER_SRC)
@@ -701,6 +705,7 @@ impl framework::Example for Example {
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
 
         encoder.copy_buffer_to_buffer(&temp_buf, 0, &self.uniform_buf, 0, 64);
+        encoder.copy_buffer_to_buffer(&temp_buf, 0, &self.occlusion_pass.uniform_buf, 0, 64);
 
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
