@@ -178,6 +178,9 @@ struct Example {
     occlusion_texture: wgpu::TextureView,
     visibility_buf: wgpu::Buffer,
     visibility_data_size: wgpu::BufferAddress,
+    yaw: f32,
+    width: i32,
+    height: i32,
 }
 
 impl Example {
@@ -188,14 +191,25 @@ impl Example {
         depth: 1,
     };
 
-    fn generate_matrix(aspect_ratio: f32) -> cgmath::Matrix4<f32> {
-        let mx_projection = cgmath::perspective(cgmath::Deg(45f32), aspect_ratio, 1.0, 100.0);
+    fn generate_matrix(aspect_ratio: f32, yaw: f32, pitch: f32) -> cgmath::Matrix4<f32> {
+        let mx_projection = cgmath::perspective(cgmath::Deg(70f32), aspect_ratio, 1.0, 10000.0);
+
+        let px = 20.0 * yaw.cos() * pitch.sin();
+        let py = 20.0 * yaw.sin() * pitch.sin();
+        let pz = 20.0 * pitch.cos();
+
+        let x = 0.0;
+        let y = 0.0;
+        let z = 0.0;
+        
         let mx_view = cgmath::Matrix4::look_at(
-            cgmath::Point3::new(2.0f32, -8.0, 0.0),
-            cgmath::Point3::new(0f32, 0.0, 0.0),
+            cgmath::Point3::new(x + px, y + py, z + pz),
+            cgmath::Point3::new(x, y, z),
             cgmath::Vector3::unit_z(),
         );
-        let mx_correction = framework::OPENGL_TO_WGPU_MATRIX;
+
+        let mx_correction = OPENGL_TO_WGPU_MATRIX;
+
         mx_correction * mx_projection * mx_view
     }
 }
@@ -659,6 +673,7 @@ impl framework::Example for Example {
             occlusion_texture: occlusion_view,
             visibility_buf,
             visibility_data_size,
+            yaw: 1.1,
         }
     }
 
@@ -667,8 +682,16 @@ impl framework::Example for Example {
     }
 
     fn resize(&mut self, sc_desc: &wgpu::SwapChainDescriptor, device: &mut wgpu::Device) {
-        let mx_total = Self::generate_matrix(sc_desc.width as f32 / sc_desc.height as f32);
+        self.depth_texture = create_depth_texture(device, sc_desc.width, sc_desc.height);
+        self.width = sc_desc.width;
+        self.height = sc_desc.height;
+    }
+
+    fn render(&mut self, frame: &wgpu::SwapChainOutput, device: &mut wgpu::Device) {
+        let mx_total = Self::generate_matrix(sc_desc.width as f32 / sc_desc.height as f32, self.yaw, 1.0);
         let mx_ref: &[f32; 16] = mx_total.as_ref();
+
+        self.yaw += 0.1;
 
         let temp_buf = device
             .create_buffer_mapped(16, wgpu::BufferUsage::TRANSFER_SRC)
@@ -676,14 +699,8 @@ impl framework::Example for Example {
 
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
-        encoder.copy_buffer_to_buffer(&temp_buf, 0, &self.uniform_buf, 0, 64);
-        device.get_queue().submit(&[encoder.finish()]);
-        self.depth_texture = create_depth_texture(device, sc_desc.width, sc_desc.height);
-    }
 
-    fn render(&mut self, frame: &wgpu::SwapChainOutput, device: &mut wgpu::Device) {
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
+        encoder.copy_buffer_to_buffer(&temp_buf, 0, &self.uniform_buf, 0, 64);
 
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
