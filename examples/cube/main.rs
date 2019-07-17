@@ -121,6 +121,15 @@ fn create_instances() -> Vec<Instance> {
         Instance {
             _pos: [-2.9 as f32, 0.0, 0.0, 0.0],
         },
+        Instance {
+            _pos: [-2.9 as f32, 2.0, 0.0, 0.0],
+        },
+        Instance {
+            _pos: [-2.9 as f32, 4.4, 0.0, 0.0],
+        },
+        Instance {
+            _pos: [0.0 as f32, 4.5, 0.0, 0.0],
+        },
     ]
 }
 
@@ -196,9 +205,9 @@ impl Example {
     fn generate_matrix(aspect_ratio: f32, yaw: f32, pitch: f32) -> cgmath::Matrix4<f32> {
         let mx_projection = cgmath::perspective(cgmath::Deg(70f32), aspect_ratio, 1.0, 10000.0);
 
-        let px = 20.0 * yaw.cos() * pitch.sin();
-        let py = 20.0 * yaw.sin() * pitch.sin();
-        let pz = 20.0 * pitch.cos();
+        let px = 10.0 * yaw.cos() * pitch.sin();
+        let py = 10.0 * yaw.sin() * pitch.sin();
+        let pz = 10.0 * pitch.cos();
 
         let x = 0.0;
         let y = 0.0;
@@ -240,7 +249,7 @@ impl framework::Example for Example {
             .create_buffer_mapped(instance_data.len(), wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::STORAGE)
             .fill_from_slice(&instance_data);
 
-        let visibility_data = vec![0 as u32, 0, 0, 0, 0];
+        let visibility_data = vec![0 as u32; instance_data.len()];
         let visibility_buf = device
             .create_buffer_mapped(visibility_data.len(), wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::TRANSFER_SRC)
             .fill_from_slice(&visibility_data);
@@ -726,7 +735,7 @@ impl framework::Example for Example {
             // TODO replace with occluders
             pass.set_index_buffer(&self.index_buf, 0);
             pass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.instance_buf, 0)]);
-            pass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 5);
+            pass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 8);
         }
 
         {
@@ -735,7 +744,8 @@ impl framework::Example for Example {
             cpass.set_bind_group(0, &self.compute_bind_group, &[]);
             cpass.set_bind_group(1, &self.bind_group, &[]);
             //cpass.dispatch(self.draw_data.len() as u32, 1, 1);
-            cpass.dispatch(self.instance_count as u32, 1, 1);
+            //cpass.dispatch(self.instance_count as u32, 1, 1);
+            cpass.dispatch(1, 1, 1);
         }
 
         {
@@ -766,7 +776,7 @@ impl framework::Example for Example {
             rpass.set_bind_group(0, &self.bind_group, &[]);
             rpass.set_index_buffer(&self.index_buf, 0);
             rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.instance_buf, 0)]);
-            //rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 5);
+            //rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 8);
             rpass.draw_indexed_indirect(&self.draw_buf, 0);
         }
         let temp_buf = device

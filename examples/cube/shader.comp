@@ -1,5 +1,7 @@
 #version 450
 
+layout (local_size_x = 8, local_size_y = 1, local_size_z = 1) in;
+
 struct DrawArguments {
     uint index_count;
     uint instance_count;
@@ -29,8 +31,13 @@ layout(set = 1, binding = 1) uniform texture2D t_Color;
 //layout(set = 1, binding = 1) uniform sampler2D t_Color;
 layout(set = 1, binding = 2) uniform sampler s_Color;
 
+shared uint temp[8];
+shared uint vis[8];
+uint instance_count = 8;
 
 void main() {
+
+    // TODO make local?
     uint i = gl_GlobalInvocationID.x;
     Instance instance = instances[i];
 
@@ -63,22 +70,95 @@ void main() {
             //visibility[i] = uint(tex.r * 1000);
     }
     //vec4 tex = texture(t_Color, texCoord);
-    visibility[i] = uint(visible);
+    vis[i] = uint(visible);
+    //visibility[i] = 1; //uint(visible);
     //visibility[i] = uint(instance.position.y * 1000);
     //visibility[i] = uint(position.y * 1000);
     //visibility[i] = uint(position.z * 1000);
     //visibility[i] = uint(tex.r * 1000);
+    
+    //vis[i] = 1;
+
+    groupMemoryBarrier();
+    memoryBarrier();
+    memoryBarrierShared();
+    barrier();
+
+    //if ((i % 2) != 0) {
+        //return;
+    //}
+    
+    temp[i] = vis[i];
+
+    //if (i < instance_count / 2) {
+        ////temp[2 * i] = visibility[2 * i];
+    
+        ////temp[2 * i] = 1; //visibility[2 * i];
+        ////temp[i] = 1;
+        //temp[2 * i] = vis[2 * i];
+    //}
+
+    groupMemoryBarrier();
+    memoryBarrier();
+    memoryBarrierShared();
+    barrier();
+
+    //if (i < instance_count / 2) {
+        //temp[2 * i] = temp[2 * i];
+        //temp[2 * i + 1] = temp[2 * i + 1];
+    //}
+
+    int o = 1;
+    for (uint d = instance_count / 2; d > 0; d /= 2) {
+        barrier();
+
+        if (i < d) {
+            int ai = o * (2 * int(i) + 1) - 1;
+            int bi = o * (2 * int(i) + 2) - 1;
+            temp[bi] += temp[ai];
+        }
+        o *= 2;
+    }
 
     barrier();
 
-    if (gl_GlobalInvocationID.x == 0) {
+    if (i == 0) {
+        temp[instance_count - 1] = 0;
+    }
+
+    for (int d = 1; d < instance_count; d *= 2) {
+        barrier();
+        o /= 2;
+        if (i < d) {
+            int ai = o * (2 * int(i) + 1) - 1;
+            int bi = o * (2 * int(i) + 2) - 1;
+            uint t = temp[ai];
+            temp[ai] = temp[bi];
+            temp[bi] += t;
+        }
+    }
+
+    groupMemoryBarrier();
+    memoryBarrierShared();
+    memoryBarrier();
+    barrier();
+
+    visibility[i] = temp[i];
+
+    //if (i == 0) {
+        //for (int j = 0; j < instance_count; j++) {
+            //visibility[j] = temp[j];
+        //}
+    //}
+
+    if (i == 0) {
         uint instanceCount = 0;
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 8; i++) {
             instanceCount += visibility[i];
         }
         indices[0].index_count = 36;
         //indices[0].instance_count = instanceCount;
-        indices[0].instance_count = 5;
+        indices[0].instance_count = 8;
         indices[0].base_index = 0;
         indices[0].vertex_offset = 0;
         indices[0].base_instance = 0;
