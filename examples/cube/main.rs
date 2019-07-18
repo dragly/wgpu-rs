@@ -12,6 +12,7 @@ struct Vertex {
 #[derive(Clone, Copy)]
 struct Instance {
     _pos: [f32; 4],
+    _size: [f32; 4],
 }
 
 #[derive(Clone, Copy)]
@@ -108,28 +109,49 @@ fn create_instances() -> Vec<Instance> {
     vec![
         Instance {
             _pos: [0.0 as f32, 0.0, 0.0, 0.0],
+            _size: [1.0 as f32, 1.0, 1.0, 0.0],
         },
         Instance {
             _pos: [2.3 as f32, 0.0, 0.0, 0.0],
+            _size: [1.0 as f32, 1.0, 1.0, 0.0],
         },
         Instance {
             _pos: [0.0 as f32, 2.6, 0.0, 0.0],
+            _size: [1.0 as f32, 1.0, 1.0, 0.0],
         },
         Instance {
             _pos: [2.1 as f32, 2.7, 0.0, 0.0],
+            _size: [1.0 as f32, 1.0, 1.0, 0.0],
         },
         Instance {
             _pos: [-2.9 as f32, 0.0, 0.0, 0.0],
+            _size: [1.0 as f32, 1.0, 1.0, 0.0],
         },
         Instance {
             _pos: [-2.9 as f32, 2.0, 0.0, 0.0],
+            _size: [1.0 as f32, 1.0, 1.0, 0.0],
         },
         Instance {
             _pos: [-2.9 as f32, 4.4, 0.0, 0.0],
+            _size: [1.0 as f32, 1.0, 1.0, 0.0],
         },
         Instance {
             _pos: [0.0 as f32, 4.5, 0.0, 0.0],
+            _size: [1.0 as f32, 1.0, 1.0, 0.0],
         },
+    ]
+}
+
+fn create_occluders() -> Vec<Instance> {
+    vec![
+        Instance {
+            _pos: [0.0f32, 6.0, 0.0, 0.0],
+            _size: [5.0f32, 0.5, 2.0, 0.0]
+        },
+        Instance {
+            _pos: [0.0f32, -6.0, 0.0, 0.0],
+            _size: [5.0f32, 0.5, 2.0, 0.0]
+        }
     ]
 }
 
@@ -183,7 +205,10 @@ struct Example {
     draw_data: Vec<DrawArguments>,
     frame_id: usize,
     instance_buf: wgpu::Buffer,
+    visible_instance_buf: wgpu::Buffer,
     instance_count: usize,
+    occluder_buf: wgpu::Buffer,
+    occluder_count: usize,
     depth_texture: wgpu::TextureView,
     occlusion_pass: Pass,
     occlusion_texture: wgpu::TextureView,
@@ -205,9 +230,9 @@ impl Example {
     fn generate_matrix(aspect_ratio: f32, yaw: f32, pitch: f32) -> cgmath::Matrix4<f32> {
         let mx_projection = cgmath::perspective(cgmath::Deg(70f32), aspect_ratio, 1.0, 10000.0);
 
-        let px = 10.0 * yaw.cos() * pitch.sin();
-        let py = 10.0 * yaw.sin() * pitch.sin();
-        let pz = 10.0 * pitch.cos();
+        let px = 15.0 * yaw.cos() * pitch.sin();
+        let py = 15.0 * yaw.sin() * pitch.sin();
+        let pz = 15.0 * pitch.cos();
 
         let x = 0.0;
         let y = 0.0;
@@ -248,6 +273,16 @@ impl framework::Example for Example {
         let instance_buf = device
             .create_buffer_mapped(instance_data.len(), wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::STORAGE)
             .fill_from_slice(&instance_data);
+
+        // TODO do not fill here
+        let visible_instance_buf = device
+            .create_buffer_mapped(instance_data.len(), wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::STORAGE)
+            .fill_from_slice(&instance_data);
+
+        let occluder_data = create_occluders();
+        let occluder_buf = device
+            .create_buffer_mapped(occluder_data.len(), wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::STORAGE)
+            .fill_from_slice(&occluder_data);
 
         let visibility_data = vec![0 as u32; instance_data.len()];
         let visibility_buf = device
@@ -459,9 +494,14 @@ impl framework::Example for Example {
             step_mode: wgpu::InputStepMode::Instance,
             attributes: &[
                 wgpu::VertexAttributeDescriptor {
-                    format: wgpu::VertexFormat::Float3,
+                    format: wgpu::VertexFormat::Float4,
                     offset: 0,
                     shader_location: 2,
+                },
+                wgpu::VertexAttributeDescriptor {
+                    format: wgpu::VertexFormat::Float4,
+                    offset: 4 * 4,
+                    shader_location: 3,
                 },
             ],
         }];
@@ -573,8 +613,16 @@ impl framework::Example for Example {
             primitive_topology: wgpu::PrimitiveTopology::TriangleList,
             color_states: &[wgpu::ColorStateDescriptor {
                 format: sc_desc.format,
-                color_blend: wgpu::BlendDescriptor::REPLACE,
-                alpha_blend: wgpu::BlendDescriptor::REPLACE,
+                color_blend: wgpu::BlendDescriptor {
+                    src_factor: wgpu::BlendFactor::SrcAlpha,
+                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha_blend: wgpu::BlendDescriptor {
+                    src_factor: wgpu::BlendFactor::SrcAlpha,
+                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                    operation: wgpu::BlendOperation::Add,
+                },
                 write_mask: wgpu::ColorWrite::ALL,
             }],
             depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
@@ -615,6 +663,11 @@ impl framework::Example for Example {
                     visibility: wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::StorageBuffer,
                 },
+                wgpu::BindGroupLayoutBinding {
+                    binding: 3,
+                    visibility: wgpu::ShaderStage::COMPUTE,
+                    ty: wgpu::BindingType::StorageBuffer,
+                },
             ],
         });
 
@@ -642,6 +695,13 @@ impl framework::Example for Example {
                     resource: wgpu::BindingResource::Buffer {
                         buffer: &visibility_buf,
                         range: 0 .. visibility_data_size,
+                    },
+                },
+                wgpu::Binding {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Buffer {
+                        buffer: &visible_instance_buf,
+                        range: 0 .. instance_data_size,
                     },
                 },
             ],
@@ -679,6 +739,9 @@ impl framework::Example for Example {
             frame_id: 0,
             instance_buf,
             instance_count: instance_data.len(),
+            visible_instance_buf,
+            occluder_buf,
+            occluder_count: occluder_data.len(),
             depth_texture,
             occlusion_pass,
             occlusion_texture: occlusion_view,
@@ -704,7 +767,7 @@ impl framework::Example for Example {
         let mx_total = Self::generate_matrix(self.width as f32 / self.height as f32, self.yaw, (PI / 2.0) as f32);
         let mx_ref: &[f32; 16] = mx_total.as_ref();
 
-        self.yaw += 0.01;
+        self.yaw += 0.005;
 
         let temp_buf = device
             .create_buffer_mapped(16, wgpu::BufferUsage::TRANSFER_SRC)
@@ -734,8 +797,9 @@ impl framework::Example for Example {
 
             // TODO replace with occluders
             pass.set_index_buffer(&self.index_buf, 0);
-            pass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.instance_buf, 0)]);
-            pass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 8);
+            //pass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.instance_buf, 0)]);
+            pass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.occluder_buf, 0)]);
+            pass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. self.occluder_count as u32);
         }
 
         {
@@ -775,9 +839,15 @@ impl framework::Example for Example {
             rpass.set_pipeline(&self.pipeline);
             rpass.set_bind_group(0, &self.bind_group, &[]);
             rpass.set_index_buffer(&self.index_buf, 0);
-            rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.instance_buf, 0)]);
-            //rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 8);
+
+            // draw others
+            //rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.instance_buf, 0)]);
+            rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.visible_instance_buf, 0)]);
             rpass.draw_indexed_indirect(&self.draw_buf, 0);
+
+            // redraw occluders
+            rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.occluder_buf, 0)]);
+            rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. self.occluder_count as u32);
         }
         let temp_buf = device
             .create_buffer(&wgpu::BufferDescriptor {
@@ -790,11 +860,11 @@ impl framework::Example for Example {
 
         device.get_queue().submit(&[encoder.finish()]);
 
-        temp_buf.map_read_async(0, self.visibility_data_size, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
-            if let Ok(mapping) = result {
-                println!("Times: {:?}", mapping.data);
-            }
-        });
+        //temp_buf.map_read_async(0, self.visibility_data_size, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
+            //if let Ok(mapping) = result {
+                //println!("Times: {:?}", mapping.data);
+            //}
+        //});
     }
 }
 
