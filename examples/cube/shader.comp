@@ -58,9 +58,9 @@ void main() {
     const uint local = gl_LocalInvocationID.x;
     const uint workGroup = gl_WorkGroupID.x;
 
-    if (global == gl_NumWorkGroups.x - 1) {
-        local_instance_count = global_instance_count - ((gl_NumWorkGroups.x - 1) * LOCAL_SIZE); 
-    }
+    //if (global == gl_NumWorkGroups.x - 1) {
+        //local_instance_count = global_instance_count - ((gl_NumWorkGroups.x - 1) * LOCAL_SIZE); 
+    //}
 
     if (global < global_instance_count) {
         Instance instance = instances[global];
@@ -96,9 +96,6 @@ void main() {
 
     int o = 1;
     for (uint d = local_instance_count / 2; d > 0; d /= 2) {
-        groupMemoryBarrier();
-        memoryBarrierShared();
-        memoryBarrier();
         barrier();
 
         if (local < d) {
@@ -109,9 +106,6 @@ void main() {
         o *= 2;
     }
 
-    groupMemoryBarrier();
-    memoryBarrierShared();
-    memoryBarrier();
     barrier();
 
     if (local == 0) {
@@ -124,9 +118,6 @@ void main() {
     }
 
     for (int d = 1; d < local_instance_count; d *= 2) {
-        groupMemoryBarrier();
-        memoryBarrierShared();
-        memoryBarrier();
         barrier();
         o /= 2;
         if (local < d) {

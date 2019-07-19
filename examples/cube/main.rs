@@ -123,7 +123,7 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
 fn create_instances() -> Vec<Instance> {
     let mut instances = Vec::new();
     let area = 8.0;
-    let count = 32;
+    let count = 64;
     for i in 0..count {
         for j in 0..count {
             let x = area * ((i as f32) / (count as f32) - 0.5);
@@ -214,6 +214,7 @@ struct Example {
     yaw: f32,
     width: u32,
     height: u32,
+    group_count: usize,
 }
 
 impl Example {
@@ -629,7 +630,7 @@ impl framework::Example for Example {
         let group_sums_buf = device
                 .create_buffer_mapped(
                     group_count,
-                    wgpu::BufferUsage::UNIFORM,
+                    wgpu::BufferUsage::STORAGE,
                 )
                 .fill_from_slice(&group_sums);
         let group_data_size = (group_sums.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress;
@@ -739,6 +740,7 @@ impl framework::Example for Example {
             yaw: 0.5,
             width: sc_desc.width,
             height: sc_desc.height,
+            group_count,
         }
     }
 
@@ -798,7 +800,7 @@ impl framework::Example for Example {
             cpass.set_bind_group(1, &self.bind_group, &[]);
             //cpass.dispatch(self.draw_data.len() as u32, 1, 1);
             //cpass.dispatch(self.instance_count as u32, 1, 1);
-            cpass.dispatch(1, 1, 1);
+            cpass.dispatch(self.group_count as u32, 1, 1);
         }
 
         {
@@ -808,7 +810,7 @@ impl framework::Example for Example {
             cpass.set_bind_group(1, &self.bind_group, &[]);
             //cpass.dispatch(self.draw_data.len() as u32, 1, 1);
             //cpass.dispatch(self.instance_count as u32, 1, 1);
-            cpass.dispatch(1, 1, 1);
+            cpass.dispatch(self.group_count as u32, 1, 1);
         }
 
         {
