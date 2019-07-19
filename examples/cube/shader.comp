@@ -1,6 +1,8 @@
 #version 450
 
 layout (local_size_x = 1024, local_size_y = 1, local_size_z = 1) in;
+//layout (local_size_x = 8, local_size_y = 1, local_size_z = 1) in;
+//layout (local_size_x = 9, local_size_y = 1, local_size_z = 1) in;
 
 struct DrawArguments {
     uint index_count;
@@ -28,7 +30,7 @@ layout(set = 0, binding = 3) buffer VisibleInstances {
     Instance[] visibleInstances;
 };
 layout(set = 0, binding = 4) uniform ComputeUniforms {
-    uint instance_counts;
+    uint instance_count;
 };
 
 layout(set = 1, binding = 0) uniform Locals {
@@ -40,45 +42,52 @@ layout(set = 1, binding = 2) uniform sampler s_Color;
 
 shared uint temp[1024];
 shared uint vis[1024];
-uint instance_count = 8;
-uint o_instanceCount;
+uint o_instanceCount = 0;
 
 void main() {
-
     // TODO make local?
     uint i = gl_GlobalInvocationID.x;
-    Instance instance = instances[i];
 
-    //vec4 position = u_Transform * vec4(instance.position.xyz, 1.0);
-    vec3 corners[8];
-    corners[0] = vec3(-1.0, -1.0, -1.0);
-    corners[1] = vec3(-1.0, -1.0, 1.0);
-    corners[2] = vec3(-1.0, 1.0, -1.0);
-    corners[3] = vec3(-1.0, 1.0, 1.0);
-    corners[4] = vec3(1.0, -1.0, -1.0);
-    corners[5] = vec3(1.0, -1.0, 1.0);
-    corners[6] = vec3(1.0, 1.0, -1.0);
-    corners[7] = vec3(1.0, 1.0, 1.0);
+    if (i < instance_count) {
+        // TODO remove
+        visibleInstances[i] = instances[i];
 
-    bool visible = false;
-    for (int j = 0; j < instance_count; j++) {
-        vec4 position = vec4(instance.position.xyz + corners[j], 1.0);
-        position = u_Transform * position;
-        position.xyz /= position.w;
-        position.xy = clamp(position.xy, -1, 1);
-        position.z = clamp(position.z, 0, 1);
-        position.xy = position.xy * vec2(0.5, 0.5) + vec2(0.5, 0.5);
-        vec2 texCoord = vec2(position.x, position.y);
-        vec4 tex = texture(sampler2D(t_Color, s_Color), texCoord);
-        visible = visible || (position.z <= tex.r);
+        Instance instance = instances[i];
+
+        //vec4 position = u_Transform * vec4(instance.position.xyz, 1.0);
+        const uint corner_count = 8;
+        vec3 corners[corner_count];
+        corners[0] = vec3(-1.0, -1.0, -1.0);
+        corners[1] = vec3(-1.0, -1.0, 1.0);
+        corners[2] = vec3(-1.0, 1.0, -1.0);
+        corners[3] = vec3(-1.0, 1.0, 1.0);
+        corners[4] = vec3(1.0, -1.0, -1.0);
+        corners[5] = vec3(1.0, -1.0, 1.0);
+        corners[6] = vec3(1.0, 1.0, -1.0);
+        corners[7] = vec3(1.0, 1.0, 1.0);
+
+        bool visible = false;
+        for (int j = 0; j < corner_count; j++) {
+            vec4 position = vec4(instance.position.xyz + instance.size.xyz * corners[j], 1.0);
+            position = u_Transform * position;
+            position.xyz /= position.w;
+            position.xy = clamp(position.xy, -1, 1);
+            position.z = clamp(position.z, 0, 1);
+            position.xy = position.xy * vec2(0.5, 0.5) + vec2(0.5, 0.5);
+            vec2 texCoord = vec2(position.x, position.y);
+            vec4 tex = texture(sampler2D(t_Color, s_Color), texCoord);
+            visible = visible || (position.z <= tex.r);
+        }
+
+        vis[i] = uint(visible);
+        temp[i] = vis[i];
     }
-
-    vis[i] = uint(visible);
-    temp[i] = vis[i];
 
     int o = 1;
     for (uint d = instance_count / 2; d > 0; d /= 2) {
+        groupMemoryBarrier();
         memoryBarrierShared();
+        memoryBarrier();
         barrier();
 
         if (i < d) {
@@ -89,16 +98,22 @@ void main() {
         o *= 2;
     }
 
+    groupMemoryBarrier();
     memoryBarrierShared();
+    memoryBarrier();
     barrier();
 
     if (i == 0) {
+        // After the first pass, the last element contains the instance count,
+        // but we need to zero it out for the second pass.
         o_instanceCount = temp[instance_count - 1];
         temp[instance_count - 1] = 0;
     }
 
     for (int d = 1; d < instance_count; d *= 2) {
+        groupMemoryBarrier();
         memoryBarrierShared();
+        memoryBarrier();
         barrier();
         o /= 2;
         if (i < d) {
@@ -110,20 +125,35 @@ void main() {
         }
     }
 
+    groupMemoryBarrier();
     memoryBarrierShared();
+    memoryBarrier();
     barrier();
 
-    if (vis[i] == 1) {
-        visibleInstances[temp[i]] = instance;
+    if (i < instance_count) {
+        if (vis[i] > 0) {
+            //visibleInstances[temp[i]] = instance;
+            visibleInstances[temp[i]].position.xyz = instances[i].position.xyz;
+        }
     }
 
-    //visibility[i] = temp[i];
-    visibility[i] = vis[i];
+    groupMemoryBarrier();
+    memoryBarrierShared();
+    memoryBarrier();
+    barrier();
+
+    if (i < instance_count) {
+        visibility[i] = temp[i];
+    }
+    //visibility[i] = vis[i];
+    //
+    //visibility[i] = uint(instances[i].position.y * 100 + 1000);
 
     if (i == 0) {
         indices[0].index_count = 36;
         //indices[0].instance_count = temp[instance_count - 1];
         indices[0].instance_count = o_instanceCount;
+        //indices[0].instance_count = 8;
         indices[0].base_index = 0;
         indices[0].vertex_offset = 0;
         indices[0].base_instance = 0;
