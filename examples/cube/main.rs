@@ -114,7 +114,7 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
 fn create_instances() -> Vec<Instance> {
     let mut instances = Vec::new();
     let area = 8.0;
-    let count = 8;
+    let count = 32;
     for i in 0..count {
         for j in 0..count {
             let x = area * ((i as f32) / (count as f32) - 0.5);
@@ -725,7 +725,7 @@ impl framework::Example for Example {
     }
 
     fn render(&mut self, frame: &wgpu::SwapChainOutput, device: &mut wgpu::Device) {
-        let mx_total = Self::generate_matrix(self.width as f32 / self.height as f32, self.yaw, (PI / 2.0) as f32);
+        let mx_total = Self::generate_matrix(self.width as f32 / self.height as f32, self.yaw, (PI / 2.5) as f32);
         let mx_ref: &[f32; 16] = mx_total.as_ref();
 
         self.yaw += 0.005;
@@ -828,17 +828,17 @@ impl framework::Example for Example {
 
         device.get_queue().submit(&[encoder.finish()]);
 
-        temp_buf.map_read_async(0, self.visibility_data_size, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
-            if let Ok(mapping) = result {
-                println!("Visibility: {:?}", mapping.data);
-            }
-        });
+        //temp_buf.map_read_async(0, self.visibility_data_size, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
+            //if let Ok(mapping) = result {
+                //println!("Visibility: {:?}", mapping.data);
+            //}
+        //});
 
-        arg_buf.map_read_async(0, std::mem::size_of::<DrawArguments>() as u64, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
-            if let Ok(mapping) = result {
-                println!("Draw arguments: {:?}", mapping.data);
-            }
-        });
+        //arg_buf.map_read_async(0, std::mem::size_of::<DrawArguments>() as u64, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
+            //if let Ok(mapping) = result {
+                //println!("Draw arguments: {:?}", mapping.data);
+            //}
+        //});
     }
 }
 
