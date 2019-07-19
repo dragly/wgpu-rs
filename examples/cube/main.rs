@@ -593,7 +593,7 @@ impl framework::Example for Example {
                 (compute_uniform_size / 4) as usize,
                 wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::TRANSFER_DST,
             )
-            .fill_from_slice(&[100]);
+            .fill_from_slice(&[compute_uniforms]);
 
         let compute_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             bindings: &[
@@ -661,7 +661,7 @@ impl framework::Example for Example {
                 wgpu::Binding {
                     binding: 4,
                     resource: wgpu::BindingResource::Buffer {
-                        buffer: &uniform_buf,
+                        buffer: &compute_uniform_buf,
                         range: 0 .. compute_uniform_size,
                     },
                 }
@@ -708,7 +708,7 @@ impl framework::Example for Example {
             occlusion_texture: occlusion_view,
             visibility_buf,
             visibility_data_size,
-            yaw: 0.1,
+            yaw: 0.5,
             width: sc_desc.width,
             height: sc_desc.height,
         }
