@@ -1,0 +1,168 @@
+#version 450
+
+#define LOCAL_SIZE
+
+layout (local_size_x = LOCAL_SIZE, local_size_y = 1, local_size_z = 1) in;
+//layout (local_size_x = 8, local_size_y = 1, local_size_z = 1) in;
+//layout (local_size_x = 9, local_size_y = 1, local_size_z = 1) in;
+
+struct DrawArguments {
+    uint index_count;
+    uint instance_count;
+    uint base_index;
+    int vertex_offset;
+    uint base_instance;
+};
+
+struct Instance {
+    vec4 position;
+    vec4 size;
+};
+
+layout(set = 0, binding = 0) buffer PrimeIndices {
+    DrawArguments[] indices;
+}; // this is used as both input and output for convenience
+layout(set = 0, binding = 1) buffer Instances {
+    Instance[] instances;
+};
+layout(set = 0, binding = 2) buffer Visibility {
+    uint[] visibility;
+};
+layout(set = 0, binding = 3) buffer VisibleInstances {
+    Instance[] visibleInstances;
+};
+layout(set = 0, binding = 4) buffer GroupSums {
+    uint[] groupSums;
+};
+
+layout(set = 1, binding = 0) uniform Locals {
+    mat4 u_Transform;
+};
+layout(set = 1, binding = 1) uniform texture2D t_Color;
+//layout(set = 1, binding = 1) uniform sampler2D t_Color;
+layout(set = 1, binding = 2) uniform sampler s_Color;
+
+shared uint temp[LOCAL_SIZE];
+shared uint vis[LOCAL_SIZE];
+uint visibleInstanceCount = 0;
+
+void main() {
+    const uint global_instance_count = instances.length();
+    const uint local_instance_count = min(global_instance_count, LOCAL_SIZE);
+    // TODO make local?
+    uint global = gl_GlobalInvocationID.x;
+    uint local = gl_LocalInvocationID.x;
+    uint workGroup = gl_WorkGroupID.x;
+
+    if (local < local_instance_count) {
+        // TODO remove
+        visibleInstances[local] = instances[local];
+
+        Instance instance = instances[local];
+
+        //vec4 position = u_Transform * vec4(instance.position.xyz, 1.0);
+        const uint corner_count = 8;
+        vec3 corners[corner_count];
+        corners[0] = vec3(-1.0, -1.0, -1.0);
+        corners[1] = vec3(-1.0, -1.0, 1.0);
+        corners[2] = vec3(-1.0, 1.0, -1.0);
+        corners[3] = vec3(-1.0, 1.0, 1.0);
+        corners[4] = vec3(1.0, -1.0, -1.0);
+        corners[5] = vec3(1.0, -1.0, 1.0);
+        corners[6] = vec3(1.0, 1.0, -1.0);
+        corners[7] = vec3(1.0, 1.0, 1.0);
+
+        bool visible = false;
+        for (int j = 0; j < corner_count; j++) {
+            vec4 position = vec4(instance.position.xyz + instance.size.xyz * corners[j], 1.0);
+            position = u_Transform * position;
+            position.xyz /= position.w;
+            position.xy = clamp(position.xy, -1, 1);
+            position.z = clamp(position.z, 0, 1);
+            position.xy = position.xy * vec2(0.5, 0.5) + vec2(0.5, 0.5);
+            vec2 texCoord = vec2(position.x, position.y);
+            vec4 tex = texture(sampler2D(t_Color, s_Color), texCoord);
+            visible = visible || (position.z <= tex.r);
+        }
+
+        vis[local] = uint(visible);
+        temp[local] = vis[local];
+    }
+
+    int o = 1;
+    for (uint d = local_instance_count / 2; d > 0; d /= 2) {
+        groupMemoryBarrier();
+        memoryBarrierShared();
+        memoryBarrier();
+        barrier();
+
+        if (local < d) {
+            int ai = o * (2 * int(local) + 1) - 1;
+            int bi = o * (2 * int(local) + 2) - 1;
+            temp[bi] += temp[ai];
+        }
+        o *= 2;
+    }
+
+    groupMemoryBarrier();
+    memoryBarrierShared();
+    memoryBarrier();
+    barrier();
+
+    if (local == 0) {
+        // After the first pass, the last element contains the instance count,
+        // but we need to zero it out for the second pass.
+        uint lastNumber = temp[local_instance_count - 1];
+        groupSums[workGroup] = lastNumber;
+        visibleInstanceCount = lastNumber;
+        temp[local_instance_count - 1] = 0;
+    }
+
+    for (int d = 1; d < local_instance_count; d *= 2) {
+        groupMemoryBarrier();
+        memoryBarrierShared();
+        memoryBarrier();
+        barrier();
+        o /= 2;
+        if (local < d) {
+            int ai = o * (2 * int(local) + 1) - 1;
+            int bi = o * (2 * int(local) + 2) - 1;
+            uint t = temp[ai];
+            temp[ai] = temp[bi];
+            temp[bi] += t;
+        }
+    }
+
+    groupMemoryBarrier();
+    memoryBarrierShared();
+    memoryBarrier();
+    barrier();
+
+    if (local < local_instance_count) {
+        if (vis[local] > 0) {
+            //visibleInstances[temp[local]] = instance;
+            visibleInstances[temp[local]].position.xyz = instances[local].position.xyz;
+        }
+    }
+
+    groupMemoryBarrier();
+    memoryBarrierShared();
+    memoryBarrier();
+    barrier();
+
+    if (local < local_instance_count) {
+        visibility[local] = temp[local];
+    }
+
+    //visibility[local] = vis[local];
+
+    if (gl_GlobalInvocationID.x == 0) {
+        indices[0].index_count = 36;
+        //indices[0].instance_count = temp[instance_count - 1];
+        indices[0].instance_count = visibleInstanceCount;
+        //indices[0].instance_count = 8;
+        indices[0].base_index = 0;
+        indices[0].vertex_offset = 0;
+        indices[0].base_instance = 0;
+    }
+}
