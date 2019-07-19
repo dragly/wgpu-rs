@@ -22,6 +22,8 @@ struct Instance {
 struct Visibility {
     uint visibility;
     uint temp;
+    uint padding;
+    uint padding2;
 };
 
 layout(set = 0, binding = 0) buffer PrimeIndices {
@@ -53,14 +55,10 @@ uint visibleInstanceCount = 0;
 
 void main() {
     const uint global_instance_count = instances.length();
-    uint local_instance_count = min(global_instance_count, LOCAL_SIZE);
+    uint local_instance_count = LOCAL_SIZE;
     const uint global = gl_GlobalInvocationID.x;
     const uint local = gl_LocalInvocationID.x;
     const uint workGroup = gl_WorkGroupID.x;
-
-    //if (global == gl_NumWorkGroups.x - 1) {
-        //local_instance_count = global_instance_count - ((gl_NumWorkGroups.x - 1) * LOCAL_SIZE); 
-    //}
 
     if (global < global_instance_count) {
         Instance instance = instances[global];
@@ -92,11 +90,17 @@ void main() {
 
         vis[local] = uint(visible);
         temp[local] = vis[local];
+    } else {
+        vis[local] = 0;
+        temp[local] = 0;
     }
 
     int o = 1;
     for (uint d = local_instance_count / 2; d > 0; d /= 2) {
         barrier();
+        memoryBarrier();
+        groupMemoryBarrier();
+        memoryBarrierShared();
 
         if (local < d) {
             int ai = o * (2 * int(local) + 1) - 1;
@@ -107,6 +111,9 @@ void main() {
     }
 
     barrier();
+    memoryBarrier();
+    groupMemoryBarrier();
+    memoryBarrierShared();
 
     if (local == 0) {
         // After the first pass, the last element contains the instance count,
@@ -119,6 +126,9 @@ void main() {
 
     for (int d = 1; d < local_instance_count; d *= 2) {
         barrier();
+        memoryBarrier();
+        groupMemoryBarrier();
+        memoryBarrierShared();
         o /= 2;
         if (local < d) {
             int ai = o * (2 * int(local) + 1) - 1;
