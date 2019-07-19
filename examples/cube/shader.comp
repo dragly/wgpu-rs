@@ -51,7 +51,6 @@ layout(set = 1, binding = 2) uniform sampler s_Color;
 
 shared uint temp[LOCAL_SIZE];
 shared uint vis[LOCAL_SIZE];
-uint visibleInstanceCount = 0;
 
 void main() {
     const uint global_instance_count = instances.length();
@@ -120,7 +119,6 @@ void main() {
         // but we need to zero it out for the second pass.
         uint lastNumber = temp[local_instance_count - 1];
         groupSums[workGroup] = lastNumber;
-        visibleInstanceCount = lastNumber;
         temp[local_instance_count - 1] = 0;
     }
 

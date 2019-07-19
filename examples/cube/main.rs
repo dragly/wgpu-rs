@@ -123,7 +123,7 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
 fn create_instances() -> Vec<Instance> {
     let mut instances = Vec::new();
     let area = 8.0;
-    let count = 100;
+    let count = 32;
     for i in 0..count {
         for j in 0..count {
             for k in 0..count {
@@ -853,19 +853,19 @@ impl framework::Example for Example {
             rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.occluder_buf, 0)]);
             rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. self.occluder_count as u32);
         }
-        let temp_buf = device
-            .create_buffer(&wgpu::BufferDescriptor {
-                size: self.visibility_data_size,
-                usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
-            });
-        encoder.copy_buffer_to_buffer(&self.visibility_buf, 0, &temp_buf, 0, self.visibility_data_size);
+        //let temp_buf = device
+            //.create_buffer(&wgpu::BufferDescriptor {
+                //size: self.visibility_data_size,
+                //usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
+            //});
+        //encoder.copy_buffer_to_buffer(&self.visibility_buf, 0, &temp_buf, 0, self.visibility_data_size);
 
-        let arg_buf = device
-            .create_buffer(&wgpu::BufferDescriptor {
-                size: std::mem::size_of::<DrawArguments>() as u64,
-                usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
-            });
-        encoder.copy_buffer_to_buffer(&self.draw_buf, 0, &arg_buf, 0, std::mem::size_of::<DrawArguments>() as u64);
+        //let arg_buf = device
+            //.create_buffer(&wgpu::BufferDescriptor {
+                //size: std::mem::size_of::<DrawArguments>() as u64,
+                //usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
+            //});
+        //encoder.copy_buffer_to_buffer(&self.draw_buf, 0, &arg_buf, 0, std::mem::size_of::<DrawArguments>() as u64);
 
         self.frame_id += 1;
 
