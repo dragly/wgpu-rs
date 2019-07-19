@@ -123,16 +123,19 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
 fn create_instances() -> Vec<Instance> {
     let mut instances = Vec::new();
     let area = 8.0;
-    let count = 40;
+    let count = 100;
     for i in 0..count {
         for j in 0..count {
-            let x = area * ((i as f32) / (count as f32) - 0.5);
-            let y = area * ((j as f32) / (count as f32) - 0.5);
-            let s = 0.4 * area / count as f32;
-            instances.push(Instance {
-                _pos: [x, y, 0.0, 0.0],
-                _size: [s, s, s, 0.0],
-            });
+            for k in 0..count {
+                let x = area * ((i as f32) / (count as f32) - 0.5);
+                let y = area * ((j as f32) / (count as f32) - 0.5);
+                let z = area * ((k as f32) / (count as f32) - 0.5);
+                let s = 0.4 * area / count as f32;
+                instances.push(Instance {
+                    _pos: [x, y, z, 0.0],
+                    _size: [s, s, s, 0.0],
+                });
+            }
         }
     }
     instances
@@ -142,11 +145,11 @@ fn create_occluders() -> Vec<Instance> {
     vec![
         Instance {
             _pos: [0.0f32, 6.0, 0.0, 0.0],
-            _size: [5.0f32, 0.5, 2.0, 0.0]
+            _size: [5.0f32, 0.5, 6.0, 0.0]
         },
         Instance {
             _pos: [0.0f32, -6.0, 0.0, 0.0],
-            _size: [5.0f32, 0.5, 2.0, 0.0]
+            _size: [5.0f32, 0.5, 6.0, 0.0]
         }
     ]
 }
@@ -625,7 +628,7 @@ impl framework::Example for Example {
         });
 
         let local_size = 1024;
-        let group_count = instance_data.len() / local_size;
+        let group_count = std::cmp::max(1, instance_data.len() / local_size);
         let group_sums = vec![0 as u32; group_count];
         let group_sums_buf = device
                 .create_buffer_mapped(
