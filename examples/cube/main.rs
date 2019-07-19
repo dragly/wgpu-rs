@@ -116,7 +116,7 @@ fn create_instances() -> Vec<Instance> {
     let area = 8.0;
     let count = 8;
     for i in 0..count {
-        for j in 0..1 {
+        for j in 0..count {
             let x = area * ((i as f32) / (count as f32) - 0.5);
             let y = area * ((j as f32) / (count as f32) - 0.5);
             let s = 0.4 * area / count as f32;
