@@ -29,6 +29,12 @@ struct OcclusionUniforms {
     proj: [[f32; 4]; 4],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct ComputeUniforms {
+    instance_count: u32,
+}
+
 struct Pass {
     pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
@@ -106,40 +112,23 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
 }
 
 fn create_instances() -> Vec<Instance> {
-    vec![
-        Instance {
-            _pos: [0.0 as f32, 0.0, 0.0, 0.0],
-            _size: [1.0 as f32, 1.0, 1.0, 0.0],
-        },
-        Instance {
-            _pos: [2.3 as f32, 0.0, 0.0, 0.0],
-            _size: [1.0 as f32, 1.0, 1.0, 0.0],
-        },
-        Instance {
-            _pos: [0.0 as f32, 2.6, 0.0, 0.0],
-            _size: [1.0 as f32, 1.0, 1.0, 0.0],
-        },
-        Instance {
-            _pos: [2.1 as f32, 2.7, 0.0, 0.0],
-            _size: [1.0 as f32, 1.0, 1.0, 0.0],
-        },
-        Instance {
-            _pos: [-2.9 as f32, 0.0, 0.0, 0.0],
-            _size: [1.0 as f32, 1.0, 1.0, 0.0],
-        },
-        Instance {
-            _pos: [-2.9 as f32, 2.0, 0.0, 0.0],
-            _size: [1.0 as f32, 1.0, 1.0, 0.0],
-        },
-        Instance {
-            _pos: [-2.9 as f32, 4.4, 0.0, 0.0],
-            _size: [1.0 as f32, 1.0, 1.0, 0.0],
-        },
-        Instance {
-            _pos: [0.0 as f32, 4.5, 0.0, 0.0],
-            _size: [1.0 as f32, 1.0, 1.0, 0.0],
-        },
-    ]
+    let mut instances = Vec::new();
+    let area = 8.0;
+    let count = 8;
+    for i in 0..count {
+        for j in 0..1 {
+            let x = area * ((i as f32) / (count as f32) - 0.5);
+            let y = area * ((j as f32) / (count as f32) - 0.5);
+            let s = 0.4 * area / count as f32;
+            instances.push(Instance {
+                _pos: [x, y, 0.0, 0.0],
+                _size: [s, s, s, 0.0],
+            });
+
+            println!("POS {} {} {}", x, y, 0.0);
+        }
+    }
+    instances
 }
 
 fn create_occluders() -> Vec<Instance> {
@@ -284,6 +273,8 @@ impl framework::Example for Example {
             .create_buffer_mapped(occluder_data.len(), wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::STORAGE)
             .fill_from_slice(&occluder_data);
 
+        println!("INSTANCE COUNT: {}", instance_data.len());
+
         let visibility_data = vec![0 as u32; instance_data.len()];
         let visibility_buf = device
             .create_buffer_mapped(visibility_data.len(), wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::TRANSFER_SRC)
@@ -318,7 +309,7 @@ impl framework::Example for Example {
         let draw_buf = device
             .create_buffer(&wgpu::BufferDescriptor {
                 size: (draw_data.len() * std::mem::size_of::<DrawArguments>()) as wgpu::BufferAddress,
-                usage: wgpu::BufferUsage::INDIRECT | wgpu::BufferUsage::STORAGE
+                usage: wgpu::BufferUsage::INDIRECT | wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::TRANSFER_SRC
             });
 
         // Create pipeline layout
@@ -344,47 +335,6 @@ impl framework::Example for Example {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             bind_group_layouts: &[&bind_group_layout],
         });
-
-        // Create the texture
-        //let size = 256u32;
-        //let texels = create_texels(size as usize);
-        //let texture_extent = wgpu::Extent3d {
-            //width: size,
-            //height: size,
-            //depth: 1,
-        //};
-        //let texture = device.create_texture(&wgpu::TextureDescriptor {
-            //size: texture_extent,
-            //array_layer_count: 1,
-            //mip_level_count: 1,
-            //sample_count: 1,
-            //dimension: wgpu::TextureDimension::D2,
-            //format: wgpu::TextureFormat::Rgba8Unorm,
-            //usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::TRANSFER_DST,
-        //});
-        //let texture_view = texture.create_default_view();
-        //let temp_buf = device
-            //.create_buffer_mapped(texels.len(), wgpu::BufferUsage::TRANSFER_SRC)
-            //.fill_from_slice(&texels);
-        //init_encoder.copy_buffer_to_texture(
-            //wgpu::BufferCopyView {
-                //buffer: &temp_buf,
-                //offset: 0,
-                //row_pitch: 4 * size,
-                //image_height: size,
-            //},
-            //wgpu::TextureCopyView {
-                //texture: &texture,
-                //mip_level: 0,
-                //array_layer: 0,
-                //origin: wgpu::Origin3d {
-                    //x: 0.0,
-                    //y: 0.0,
-                    //z: 0.0,
-                //},
-            //},
-            //texture_extent,
-        //);
 
         // Occlusion texture
         let occlusion_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -419,18 +369,6 @@ impl framework::Example for Example {
             array_count: 1,
         });
 
-        // Create other resources
-        //let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            //address_mode_u: wgpu::AddressMode::ClampToEdge,
-            //address_mode_v: wgpu::AddressMode::ClampToEdge,
-            //address_mode_w: wgpu::AddressMode::ClampToEdge,
-            //mag_filter: wgpu::FilterMode::Nearest,
-            //min_filter: wgpu::FilterMode::Linear,
-            //mipmap_filter: wgpu::FilterMode::Nearest,
-            //lod_min_clamp: -100.0,
-            //lod_max_clamp: 100.0,
-            //compare_function: wgpu::CompareFunction::Always,
-        //});
         let mx_total = Self::generate_matrix(sc_desc.width as f32 / sc_desc.height as f32, 0.0, 0.0);
         let mx_ref: &[f32; 16] = mx_total.as_ref();
         let uniform_buf = device
@@ -646,6 +584,17 @@ impl framework::Example for Example {
 
         let draw_data_size = (draw_data.len() * std::mem::size_of::<DrawArguments>()) as wgpu::BufferAddress;
 
+        let compute_uniforms = ComputeUniforms {
+            instance_count: instance_data.len() as u32,
+        };
+        let compute_uniform_size = mem::size_of::<ComputeUniforms>() as wgpu::BufferAddress;
+        let compute_uniform_buf = device
+            .create_buffer_mapped(
+                (compute_uniform_size / 4) as usize,
+                wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::TRANSFER_DST,
+            )
+            .fill_from_slice(&[100]);
+
         let compute_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             bindings: &[
                 wgpu::BindGroupLayoutBinding {
@@ -668,6 +617,11 @@ impl framework::Example for Example {
                     visibility: wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::StorageBuffer,
                 },
+                wgpu::BindGroupLayoutBinding {
+                    binding: 4,
+                    visibility: wgpu::ShaderStage::COMPUTE,
+                    ty: wgpu::BindingType::UniformBuffer,
+                }
             ],
         });
 
@@ -704,6 +658,13 @@ impl framework::Example for Example {
                         range: 0 .. instance_data_size,
                     },
                 },
+                wgpu::Binding {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Buffer {
+                        buffer: &uniform_buf,
+                        range: 0 .. compute_uniform_size,
+                    },
+                }
             ],
 
         });
@@ -747,7 +708,7 @@ impl framework::Example for Example {
             occlusion_texture: occlusion_view,
             visibility_buf,
             visibility_data_size,
-            yaw: 1.1,
+            yaw: 0.1,
             width: sc_desc.width,
             height: sc_desc.height,
         }
@@ -856,15 +817,28 @@ impl framework::Example for Example {
             });
         encoder.copy_buffer_to_buffer(&self.visibility_buf, 0, &temp_buf, 0, self.visibility_data_size);
 
+        let arg_buf = device
+            .create_buffer(&wgpu::BufferDescriptor {
+                size: std::mem::size_of::<DrawArguments>() as u64,
+                usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
+            });
+        encoder.copy_buffer_to_buffer(&self.draw_buf, 0, &arg_buf, 0, std::mem::size_of::<DrawArguments>() as u64);
+
         self.frame_id += 1;
 
         device.get_queue().submit(&[encoder.finish()]);
 
-        //temp_buf.map_read_async(0, self.visibility_data_size, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
-            //if let Ok(mapping) = result {
-                //println!("Times: {:?}", mapping.data);
-            //}
-        //});
+        temp_buf.map_read_async(0, self.visibility_data_size, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
+            if let Ok(mapping) = result {
+                println!("Visibility: {:?}", mapping.data);
+            }
+        });
+
+        arg_buf.map_read_async(0, std::mem::size_of::<DrawArguments>() as u64, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
+            if let Ok(mapping) = result {
+                println!("Draw arguments: {:?}", mapping.data);
+            }
+        });
     }
 }
 

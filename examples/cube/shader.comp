@@ -1,6 +1,6 @@
 #version 450
 
-layout (local_size_x = 8, local_size_y = 1, local_size_z = 1) in;
+layout (local_size_x = 1024, local_size_y = 1, local_size_z = 1) in;
 
 struct DrawArguments {
     uint index_count;
@@ -27,6 +27,9 @@ layout(set = 0, binding = 2) buffer Visibility {
 layout(set = 0, binding = 3) buffer VisibleInstances {
     Instance[] visibleInstances;
 };
+layout(set = 0, binding = 4) uniform ComputeUniforms {
+    uint instance_counts;
+};
 
 layout(set = 1, binding = 0) uniform Locals {
     mat4 u_Transform;
@@ -35,9 +38,10 @@ layout(set = 1, binding = 1) uniform texture2D t_Color;
 //layout(set = 1, binding = 1) uniform sampler2D t_Color;
 layout(set = 1, binding = 2) uniform sampler s_Color;
 
-shared uint temp[8];
-shared uint vis[8];
+shared uint temp[1024];
+shared uint vis[1024];
 uint instance_count = 8;
+uint o_instanceCount;
 
 void main() {
 
@@ -57,63 +61,24 @@ void main() {
     corners[7] = vec3(1.0, 1.0, 1.0);
 
     bool visible = false;
-    for (int j = 0; j < 8; j++) {
+    for (int j = 0; j < instance_count; j++) {
         vec4 position = vec4(instance.position.xyz + corners[j], 1.0);
         position = u_Transform * position;
         position.xyz /= position.w;
         position.xy = clamp(position.xy, -1, 1);
         position.z = clamp(position.z, 0, 1);
-        // map from clip to texture
         position.xy = position.xy * vec2(0.5, 0.5) + vec2(0.5, 0.5);
-        //indices[j].index_count = 36;
         vec2 texCoord = vec2(position.x, position.y);
         vec4 tex = texture(sampler2D(t_Color, s_Color), texCoord);
         visible = visible || (position.z <= tex.r);
-        //if (j == 0)
-            //visibility[i] = uint(position.z * 1000);
-            //visibility[i] = uint(tex.r * 1000);
     }
-    //vec4 tex = texture(t_Color, texCoord);
+
     vis[i] = uint(visible);
-    //visibility[i] = 1; //uint(visible);
-    //visibility[i] = uint(instance.position.y * 1000);
-    //visibility[i] = uint(position.y * 1000);
-    //visibility[i] = uint(position.z * 1000);
-    //visibility[i] = uint(tex.r * 1000);
-    
-    //vis[i] = 1;
-
-    groupMemoryBarrier();
-    memoryBarrier();
-    memoryBarrierShared();
-    barrier();
-
-    //if ((i % 2) != 0) {
-        //return;
-    //}
-    
     temp[i] = vis[i];
-
-    //if (i < instance_count / 2) {
-        ////temp[2 * i] = visibility[2 * i];
-    
-        ////temp[2 * i] = 1; //visibility[2 * i];
-        ////temp[i] = 1;
-        //temp[2 * i] = vis[2 * i];
-    //}
-
-    groupMemoryBarrier();
-    memoryBarrier();
-    memoryBarrierShared();
-    barrier();
-
-    //if (i < instance_count / 2) {
-        //temp[2 * i] = temp[2 * i];
-        //temp[2 * i + 1] = temp[2 * i + 1];
-    //}
 
     int o = 1;
     for (uint d = instance_count / 2; d > 0; d /= 2) {
+        memoryBarrierShared();
         barrier();
 
         if (i < d) {
@@ -124,13 +89,16 @@ void main() {
         o *= 2;
     }
 
+    memoryBarrierShared();
     barrier();
 
     if (i == 0) {
+        o_instanceCount = temp[instance_count - 1];
         temp[instance_count - 1] = 0;
     }
 
     for (int d = 1; d < instance_count; d *= 2) {
+        memoryBarrierShared();
         barrier();
         o /= 2;
         if (i < d) {
@@ -142,9 +110,7 @@ void main() {
         }
     }
 
-    groupMemoryBarrier();
     memoryBarrierShared();
-    memoryBarrier();
     barrier();
 
     if (vis[i] == 1) {
@@ -154,21 +120,10 @@ void main() {
     //visibility[i] = temp[i];
     visibility[i] = vis[i];
 
-    //if (i == 0) {
-        //for (int j = 0; j < instance_count; j++) {
-            //visibility[j] = temp[j];
-        //}
-    //}
-
     if (i == 0) {
-        //uint instanceCount = 0;
-        //for (int i = 0; i < 8; i++) {
-            //instanceCount += visibility[i];
-        //}
         indices[0].index_count = 36;
-        //indices[0].instance_count = instanceCount;
-        indices[0].instance_count = temp[instance_count - 1];
-        //indices[0].instance_count = 8;
+        //indices[0].instance_count = temp[instance_count - 1];
+        indices[0].instance_count = o_instanceCount;
         indices[0].base_index = 0;
         indices[0].vertex_offset = 0;
         indices[0].base_instance = 0;
