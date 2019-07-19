@@ -15,6 +15,15 @@ struct Instance {
     _size: [f32; 4],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Visibility {
+    visibility: u32,
+    temp: u32,
+    _padding: u32,
+    _padding2: u32,
+}
+
 #[derive(Clone, Copy)]
 struct DrawArguments {
     index_count: u32,
@@ -124,8 +133,6 @@ fn create_instances() -> Vec<Instance> {
                 _pos: [x, y, 0.0, 0.0],
                 _size: [s, s, s, 0.0],
             });
-
-            println!("POS {} {} {}", x, y, 0.0);
         }
     }
     instances
@@ -190,6 +197,7 @@ struct Example {
     uniform_buf: wgpu::Buffer,
     pipeline: wgpu::RenderPipeline,
     compute_pipeline: wgpu::ComputePipeline,
+    group_scan_pipeline: wgpu::ComputePipeline,
     compute_bind_group: wgpu::BindGroup,
     draw_data: Vec<DrawArguments>,
     frame_id: usize,
@@ -262,6 +270,7 @@ impl framework::Example for Example {
         let instance_buf = device
             .create_buffer_mapped(instance_data.len(), wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::STORAGE)
             .fill_from_slice(&instance_data);
+        let instance_data_size = (instance_data.len() * instance_size) as wgpu::BufferAddress;
 
         // TODO do not fill here
         let visible_instance_buf = device
@@ -274,11 +283,6 @@ impl framework::Example for Example {
             .fill_from_slice(&occluder_data);
 
         println!("INSTANCE COUNT: {}", instance_data.len());
-
-        let visibility_data = vec![0 as u32; instance_data.len()];
-        let visibility_buf = device
-            .create_buffer_mapped(visibility_data.len(), wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::TRANSFER_SRC)
-            .fill_from_slice(&visibility_data);
 
         let (plane_vertex_data, plane_index_data) = create_plane(7);
         let plane_vertex_buf = device
@@ -582,19 +586,13 @@ impl framework::Example for Example {
             framework::load_glsl(include_str!("shader.comp"), framework::ShaderStage::Compute);
         let cs_module = device.create_shader_module(&cs_bytes);
 
+        let group_scan_bytes =
+            framework::load_glsl(include_str!("group_scan.comp"), framework::ShaderStage::Compute);
+        let group_scan_module = device.create_shader_module(&group_scan_bytes);
+
         let draw_data_size = (draw_data.len() * std::mem::size_of::<DrawArguments>()) as wgpu::BufferAddress;
 
-        let compute_uniforms = ComputeUniforms {
-            instance_count: instance_data.len() as u32,
-        };
-        let compute_uniform_size = mem::size_of::<ComputeUniforms>() as wgpu::BufferAddress;
-        let compute_uniform_buf = device
-            .create_buffer_mapped(
-                (compute_uniform_size / 4) as usize,
-                wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::TRANSFER_DST,
-            )
-            .fill_from_slice(&[compute_uniforms]);
-
+        // TODO set to 2048 when compute shader is updated
         let compute_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             bindings: &[
                 wgpu::BindGroupLayoutBinding {
@@ -620,13 +618,34 @@ impl framework::Example for Example {
                 wgpu::BindGroupLayoutBinding {
                     binding: 4,
                     visibility: wgpu::ShaderStage::COMPUTE,
-                    ty: wgpu::BindingType::UniformBuffer,
-                }
+                    ty: wgpu::BindingType::StorageBuffer,
+                },
             ],
         });
 
-        let instance_data_size = (instance_data.len() * instance_size) as wgpu::BufferAddress;
-        let visibility_data_size = (visibility_data.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress;
+        let local_size = 1024;
+        let group_count = instance_data.len() / local_size;
+        let group_sums = vec![0 as u32; group_count];
+        let group_sums_buf = device
+                .create_buffer_mapped(
+                    group_count,
+                    wgpu::BufferUsage::UNIFORM,
+                )
+                .fill_from_slice(&group_sums);
+        let group_data_size = (group_sums.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress;
+
+        let visibility_data = vec![Visibility{
+            visibility: 0,
+            temp: 0,
+            _padding: 0,
+            _padding2: 0,
+        }; instance_data.len()];
+        let visibility_buf = device
+            .create_buffer_mapped(visibility_data.len(), wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::TRANSFER_SRC)
+            .fill_from_slice(&visibility_data);
+
+        let visibility_data_size = (visibility_data.len() * std::mem::size_of::<Visibility>()) as wgpu::BufferAddress;
+
         let compute_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &compute_bind_group_layout,
             bindings: &[
@@ -661,10 +680,10 @@ impl framework::Example for Example {
                 wgpu::Binding {
                     binding: 4,
                     resource: wgpu::BindingResource::Buffer {
-                        buffer: &compute_uniform_buf,
-                        range: 0 .. compute_uniform_size,
+                        buffer: &group_sums_buf,
+                        range: 0 .. group_data_size,
                     },
-                }
+                },
             ],
 
         });
@@ -677,6 +696,14 @@ impl framework::Example for Example {
             layout: &compute_pipeline_layout,
             compute_stage: wgpu::PipelineStageDescriptor {
                 module: &cs_module,
+                entry_point: "main",
+            },
+        });
+
+        let group_scan_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            layout: &compute_pipeline_layout,
+            compute_stage: wgpu::PipelineStageDescriptor {
+                module: &group_scan_module,
                 entry_point: "main",
             },
         });
@@ -695,6 +722,7 @@ impl framework::Example for Example {
             uniform_buf,
             pipeline,
             compute_pipeline,
+            group_scan_pipeline,
             compute_bind_group,
             draw_data,
             frame_id: 0,
@@ -766,6 +794,16 @@ impl framework::Example for Example {
         {
             let mut cpass = encoder.begin_compute_pass();
             cpass.set_pipeline(&self.compute_pipeline);
+            cpass.set_bind_group(0, &self.compute_bind_group, &[]);
+            cpass.set_bind_group(1, &self.bind_group, &[]);
+            //cpass.dispatch(self.draw_data.len() as u32, 1, 1);
+            //cpass.dispatch(self.instance_count as u32, 1, 1);
+            cpass.dispatch(1, 1, 1);
+        }
+
+        {
+            let mut cpass = encoder.begin_compute_pass();
+            cpass.set_pipeline(&self.group_scan_pipeline);
             cpass.set_bind_group(0, &self.compute_bind_group, &[]);
             cpass.set_bind_group(1, &self.bind_group, &[]);
             //cpass.dispatch(self.draw_data.len() as u32, 1, 1);
