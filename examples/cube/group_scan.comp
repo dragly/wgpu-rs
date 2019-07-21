@@ -50,37 +50,71 @@ layout(set = 1, binding = 1) uniform texture2D t_Color;
 layout(set = 1, binding = 2) uniform sampler s_Color;
 
 shared uint temp[LOCAL_SIZE];
-shared uint vis[LOCAL_SIZE];
 
 void main() {
-    const uint global_instance_count = instances.length();
+    const uint global_group_count = groupSums.length();
     const uint global = gl_GlobalInvocationID.x;
     const uint local = gl_LocalInvocationID.x;
     const uint workGroup = gl_WorkGroupID.x;
 
-    if (global < global_instance_count) {
-        if (workGroup > 0) {
-            // a local scan since the number of groups is likely small
-            // TODO do in parallel or separate shader
-            for (int i = 0; i < workGroup; i++) {
-                visibility[global].temp += groupSums[i];
-            }
-        }
+    uint visibleInstanceCount = 0;
 
-        if (visibility[global].visibility > 0) {
-            //visibleInstances[temp[local]] = instance;
-            visibleInstances[visibility[global].temp].position.xyz = instances[global].position.xyz;
+    if (global < global_group_count) {
+        temp[local] = groupSums[global];
+    } else {
+        temp[local] = 0;
+    }
+
+    int o = 1;
+    for (uint d = LOCAL_SIZE / 2; d > 0; d /= 2) {
+        barrier();
+        memoryBarrierShared();
+
+        if (local < d) {
+            int ai = o * (2 * int(local) + 1) - 1;
+            int bi = o * (2 * int(local) + 2) - 1;
+            temp[bi] += temp[ai];
+        }
+        o *= 2;
+    }
+
+    barrier();
+    memoryBarrierShared();
+
+    if (local == 0) {
+        // After the first pass, the last element contains the instance count,
+        // but we need to zero it out for the second pass.
+        uint lastNumber = temp[LOCAL_SIZE - 1];
+        visibleInstanceCount = lastNumber;
+        groupSums[workGroup] = lastNumber;
+        temp[LOCAL_SIZE - 1] = 0;
+    }
+
+    for (int d = 1; d < LOCAL_SIZE; d *= 2) {
+        barrier();
+        memoryBarrierShared();
+        o /= 2;
+        if (local < d) {
+            int ai = o * (2 * int(local) + 1) - 1;
+            int bi = o * (2 * int(local) + 2) - 1;
+            uint t = temp[ai];
+            temp[ai] = temp[bi];
+            temp[bi] += t;
         }
     }
 
+    barrier();
+    memoryBarrierShared();
+
+    if (global < global_group_count) {
+        groupSums[global] = temp[local];
+    }
+
     if (gl_GlobalInvocationID.x == 0) {
-        uint visibleInstanceCount = 0;
-        for (int i = 0; i < gl_NumWorkGroups.x; i++) {
-            visibleInstanceCount += groupSums[i];
-        }
         indices[0].index_count = 36;
         //indices[0].instance_count = temp[instance_count - 1];
         indices[0].instance_count = visibleInstanceCount;
+        //indices[0].instance_count = 0;
         //indices[0].instance_count = 8;
         indices[0].base_index = 0;
         indices[0].vertex_offset = 0;
