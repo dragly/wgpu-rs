@@ -1,0 +1,68 @@
+#version 450
+
+const uint LOCAL_SIZE = 1024;
+
+layout (local_size_x = LOCAL_SIZE, local_size_y = 1, local_size_z = 1) in;
+//layout (local_size_x = 8, local_size_y = 1, local_size_z = 1) in;
+//layout (local_size_x = 9, local_size_y = 1, local_size_z = 1) in;
+
+struct DrawArguments {
+    uint index_count;
+    uint instance_count;
+    uint base_index;
+    int vertex_offset;
+    uint base_instance;
+};
+
+struct Instance {
+    vec4 position;
+    vec4 size;
+};
+
+struct Visibility {
+    uint visibility;
+    uint temp;
+    uint padding;
+    uint padding2;
+};
+
+layout(set = 0, binding = 0) buffer PrimeIndices {
+    DrawArguments[] indices;
+}; // this is used as both input and output for convenience
+layout(set = 0, binding = 1) buffer Instances {
+    Instance[] instances;
+};
+layout(set = 0, binding = 2) buffer Visibilities {
+    Visibility[] visibility;
+};
+layout(set = 0, binding = 3) buffer VisibleInstances {
+    Instance[] visibleInstances;
+};
+layout(set = 0, binding = 4) buffer GroupSums {
+    uint[] groupSums;
+};
+
+layout(set = 1, binding = 0) uniform Locals {
+    mat4 u_Transform;
+};
+layout(set = 1, binding = 1) uniform texture2D t_Color;
+//layout(set = 1, binding = 1) uniform sampler2D t_Color;
+layout(set = 1, binding = 2) uniform sampler s_Color;
+
+shared uint temp[LOCAL_SIZE];
+shared uint vis[LOCAL_SIZE];
+
+void main() {
+    const uint global_instance_count = instances.length();
+    const uint global = gl_GlobalInvocationID.x;
+    const uint local = gl_LocalInvocationID.x;
+    const uint workGroup = gl_WorkGroupID.x;
+
+    if (global < global_instance_count) {
+        visibility[global].temp += groupSums[workGroup];
+        if (visibility[global].visibility > 0) {
+            //visibleInstances[temp[local]] = instance;
+            visibleInstances[visibility[global].temp].position.xyz = instances[global].position.xyz;
+        }
+    }
+}
