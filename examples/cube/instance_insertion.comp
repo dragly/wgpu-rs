@@ -61,8 +61,8 @@ void main() {
     if (global < global_instance_count) {
         visibility[global].temp += groupSums[workGroup];
         if (visibility[global].visibility > 0) {
-            //visibleInstances[temp[local]] = instance;
-            visibleInstances[visibility[global].temp].position.xyz = instances[global].position.xyz;
+            visibleInstances[visibility[global].temp] = instances[global];
+            //visibleInstances[visibility[global].temp].position.xyz = instances[global].position.xyz;
         }
     }
 }
