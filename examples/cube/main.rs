@@ -120,7 +120,7 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
     (vertex_data.to_vec(), index_data.to_vec())
 }
 
-const instance_side_count: u64 = 100;
+const instance_side_count: u64 = 80;
 
 fn create_instances() -> Vec<Instance> {
     let mut instances = Vec::new();
