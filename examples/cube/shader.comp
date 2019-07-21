@@ -97,8 +97,6 @@ void main() {
     int o = 1;
     for (uint d = local_instance_count / 2; d > 0; d /= 2) {
         barrier();
-        memoryBarrier();
-        groupMemoryBarrier();
         memoryBarrierShared();
 
         if (local < d) {
@@ -110,8 +108,6 @@ void main() {
     }
 
     barrier();
-    memoryBarrier();
-    groupMemoryBarrier();
     memoryBarrierShared();
 
     if (local == 0) {
@@ -124,8 +120,6 @@ void main() {
 
     for (int d = 1; d < local_instance_count; d *= 2) {
         barrier();
-        memoryBarrier();
-        groupMemoryBarrier();
         memoryBarrierShared();
         o /= 2;
         if (local < d) {
@@ -138,8 +132,6 @@ void main() {
     }
 
     barrier();
-    memoryBarrier();
-    groupMemoryBarrier();
     memoryBarrierShared();
 
     if (global < global_instance_count) {

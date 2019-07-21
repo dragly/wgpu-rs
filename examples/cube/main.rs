@@ -120,10 +120,12 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
     (vertex_data.to_vec(), index_data.to_vec())
 }
 
+const instance_side_count: u64 = 100;
+
 fn create_instances() -> Vec<Instance> {
     let mut instances = Vec::new();
     let area = 8.0;
-    let count = 64;
+    let count = instance_side_count;
     for i in 0..count {
         for j in 0..count {
             for k in 0..count {
@@ -201,6 +203,7 @@ struct Example {
     pipeline: wgpu::RenderPipeline,
     compute_pipeline: wgpu::ComputePipeline,
     group_scan_pipeline: wgpu::ComputePipeline,
+    instance_insertion_pipeline: wgpu::ComputePipeline,
     compute_bind_group: wgpu::BindGroup,
     draw_data: Vec<DrawArguments>,
     frame_id: usize,
@@ -214,6 +217,7 @@ struct Example {
     occlusion_texture: wgpu::TextureView,
     visibility_buf: wgpu::Buffer,
     visibility_data_size: wgpu::BufferAddress,
+    group_sum_buf: wgpu::Buffer,
     yaw: f32,
     width: u32,
     height: u32,
@@ -594,6 +598,10 @@ impl framework::Example for Example {
             framework::load_glsl(include_str!("group_scan.comp"), framework::ShaderStage::Compute);
         let group_scan_module = device.create_shader_module(&group_scan_bytes);
 
+        let instance_insertion_bytes =
+            framework::load_glsl(include_str!("instance_insertion.comp"), framework::ShaderStage::Compute);
+        let instance_insertion_module = device.create_shader_module(&instance_insertion_bytes);
+
         let draw_data_size = (draw_data.len() * std::mem::size_of::<DrawArguments>()) as wgpu::BufferAddress;
 
         // TODO set to 2048 when compute shader is updated
@@ -629,11 +637,12 @@ impl framework::Example for Example {
 
         let local_size = 1024;
         let group_count = std::cmp::max(1, instance_data.len() / local_size);
+        println!("GROUP COUNT {}", group_count);
         let group_sums = vec![0 as u32; group_count];
-        let group_sums_buf = device
+        let group_sum_buf = device
                 .create_buffer_mapped(
                     group_count,
-                    wgpu::BufferUsage::STORAGE,
+                    wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::TRANSFER_SRC,
                 )
                 .fill_from_slice(&group_sums);
         let group_data_size = (group_sums.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress;
@@ -684,7 +693,7 @@ impl framework::Example for Example {
                 wgpu::Binding {
                     binding: 4,
                     resource: wgpu::BindingResource::Buffer {
-                        buffer: &group_sums_buf,
+                        buffer: &group_sum_buf,
                         range: 0 .. group_data_size,
                     },
                 },
@@ -712,6 +721,14 @@ impl framework::Example for Example {
             },
         });
 
+        let instance_insertion_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            layout: &compute_pipeline_layout,
+            compute_stage: wgpu::PipelineStageDescriptor {
+                module: &instance_insertion_module,
+                entry_point: "main",
+            },
+        });
+
         let depth_texture = create_depth_texture(device, sc_desc.width, sc_desc.height);
 
         // Done
@@ -727,6 +744,7 @@ impl framework::Example for Example {
             pipeline,
             compute_pipeline,
             group_scan_pipeline,
+            instance_insertion_pipeline,
             compute_bind_group,
             draw_data,
             frame_id: 0,
@@ -740,6 +758,7 @@ impl framework::Example for Example {
             occlusion_texture: occlusion_view,
             visibility_buf,
             visibility_data_size,
+            group_sum_buf,
             yaw: 0.5,
             width: sc_desc.width,
             height: sc_desc.height,
@@ -806,9 +825,22 @@ impl framework::Example for Example {
             cpass.dispatch(self.group_count as u32, 1, 1);
         }
 
+        // TODO find a way to support larger group counts
+        assert!(self.group_count < 1024);
+
         {
             let mut cpass = encoder.begin_compute_pass();
             cpass.set_pipeline(&self.group_scan_pipeline);
+            cpass.set_bind_group(0, &self.compute_bind_group, &[]);
+            cpass.set_bind_group(1, &self.bind_group, &[]);
+            //cpass.dispatch(self.draw_data.len() as u32, 1, 1);
+            //cpass.dispatch(self.instance_count as u32, 1, 1);
+            cpass.dispatch(1, 1, 1);
+        }
+
+        {
+            let mut cpass = encoder.begin_compute_pass();
+            cpass.set_pipeline(&self.instance_insertion_pipeline);
             cpass.set_bind_group(0, &self.compute_bind_group, &[]);
             cpass.set_bind_group(1, &self.bind_group, &[]);
             //cpass.dispatch(self.draw_data.len() as u32, 1, 1);
@@ -848,6 +880,7 @@ impl framework::Example for Example {
             //rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.instance_buf, 0)]);
             rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.visible_instance_buf, 0)]);
             rpass.draw_indexed_indirect(&self.draw_buf, 0);
+            //rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. (instance_side_count * instance_side_count * instance_side_count) as u32);
 
             // redraw occluders
             rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.occluder_buf, 0)]);
@@ -859,13 +892,20 @@ impl framework::Example for Example {
                 //usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
             //});
         //encoder.copy_buffer_to_buffer(&self.visibility_buf, 0, &temp_buf, 0, self.visibility_data_size);
+        
+        let group_sum_buf = device
+            .create_buffer(&wgpu::BufferDescriptor {
+                size: self.group_count as u64,
+                usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
+            });
+        encoder.copy_buffer_to_buffer(&self.group_sum_buf, 0, &group_sum_buf, 0, (self.group_count * std::mem::size_of::<u32>()) as u64);
 
-        //let arg_buf = device
-            //.create_buffer(&wgpu::BufferDescriptor {
-                //size: std::mem::size_of::<DrawArguments>() as u64,
-                //usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
-            //});
-        //encoder.copy_buffer_to_buffer(&self.draw_buf, 0, &arg_buf, 0, std::mem::size_of::<DrawArguments>() as u64);
+        let arg_buf = device
+            .create_buffer(&wgpu::BufferDescriptor {
+                size: std::mem::size_of::<DrawArguments>() as u64,
+                usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
+            });
+        encoder.copy_buffer_to_buffer(&self.draw_buf, 0, &arg_buf, 0, std::mem::size_of::<DrawArguments>() as u64);
 
         self.frame_id += 1;
 
@@ -880,6 +920,12 @@ impl framework::Example for Example {
         //arg_buf.map_read_async(0, std::mem::size_of::<DrawArguments>() as u64, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
             //if let Ok(mapping) = result {
                 //println!("Draw arguments: {:?}", mapping.data);
+            //}
+        //});
+        
+        //group_sum_buf.map_read_async(0, self.group_count as u64, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
+            //if let Ok(mapping) = result {
+                //println!("Group sums: {:?}", mapping.data);
             //}
         //});
     }
