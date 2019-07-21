@@ -312,17 +312,18 @@ impl framework::Example for Example {
 
         let draw_data = vec![DrawArguments{
             index_count: index_data.len() as u32,
-            instance_count: 1,
+            instance_count: instance_data.len() as u32,
             base_index: 0,
             vertex_offset: 0,
             base_instance: 0,
         }];
 
         let draw_buf = device
-            .create_buffer(&wgpu::BufferDescriptor {
-                size: (draw_data.len() * std::mem::size_of::<DrawArguments>()) as wgpu::BufferAddress,
-                usage: wgpu::BufferUsage::INDIRECT | wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::TRANSFER_SRC
-            });
+            .create_buffer_mapped(
+                1,
+                wgpu::BufferUsage::INDIRECT | wgpu::BufferUsage::TRANSFER_SRC | wgpu::BufferUsage::STORAGE,
+            )
+            .fill_from_slice(&draw_data);
 
         // Create pipeline layout
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
