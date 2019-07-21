@@ -123,7 +123,7 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
 fn create_instances() -> Vec<Instance> {
     let mut instances = Vec::new();
     let area = 8.0;
-    let count = 32;
+    let count = 64;
     for i in 0..count {
         for j in 0..count {
             for k in 0..count {
