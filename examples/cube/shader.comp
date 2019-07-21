@@ -137,6 +137,11 @@ void main() {
         }
     }
 
+    barrier();
+    memoryBarrier();
+    groupMemoryBarrier();
+    memoryBarrierShared();
+
     if (global < global_instance_count) {
         visibility[global].visibility = vis[local];
         visibility[global].temp = temp[local];
