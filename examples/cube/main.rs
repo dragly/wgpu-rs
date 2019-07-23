@@ -382,7 +382,7 @@ impl framework::Example for Example {
             .fill_from_slice(&draw_data);
 
         let dispatch_data = vec![DispatchArguments{
-            x: 1,
+            x: instance_data.len() as u32,
             y: 1,
             z: 1,
         }];
@@ -677,6 +677,7 @@ impl framework::Example for Example {
         let instance_insertion_module = device.create_shader_module(&instance_insertion_bytes);
 
         let draw_data_size = (draw_data.len() * std::mem::size_of::<DrawArguments>()) as wgpu::BufferAddress;
+        let dispatch_data_size = (dispatch_data.len() * std::mem::size_of::<DispatchArguments>()) as wgpu::BufferAddress;
 
         // TODO set to 2048 when compute shader is updated
         let compute_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -708,6 +709,11 @@ impl framework::Example for Example {
                 },
                 wgpu::BindGroupLayoutBinding {
                     binding: 5,
+                    visibility: wgpu::ShaderStage::COMPUTE,
+                    ty: wgpu::BindingType::StorageBuffer,
+                },
+                wgpu::BindGroupLayoutBinding {
+                    binding: 6,
                     visibility: wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::StorageBuffer,
                 },
@@ -783,6 +789,13 @@ impl framework::Example for Example {
                     resource: wgpu::BindingResource::Buffer {
                         buffer: &sector_buf,
                         range: 0 .. sector_data_size,
+                    },
+                },
+                wgpu::Binding {
+                    binding: 6,
+                    resource: wgpu::BindingResource::Buffer {
+                        buffer: &dispatch_buf,
+                        range: 0 .. dispatch_data_size,
                     },
                 },
             ],
