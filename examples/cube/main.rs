@@ -136,8 +136,8 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
     (vertex_data.to_vec(), index_data.to_vec())
 }
 
-const instance_side_count: u64 = 20;
-const sector_side_count: u64 = 6;
+const instance_side_count: u64 = 10;
+const sector_side_count: u64 = 10;
 const total_instance_count: u64 = sector_side_count * sector_side_count * sector_side_count + instance_side_count * instance_side_count * instance_side_count;
 
 fn create_instances() -> (Vec<Sector>, Vec<Instance>) {
@@ -966,8 +966,8 @@ impl framework::Example for Example {
             //cpass.dispatch(self.instance_count as u32, 1, 1);
             //let count = (self.instance_count / 1024 + 1);
             let count = self.instance_count;
-            //cpass.dispatch(count as u32, 1, 1);
-            cpass.dispatch_indirect(&self.dispatch_buf, 0);
+            cpass.dispatch(count as u32, 1, 1);
+            //cpass.dispatch_indirect(&self.dispatch_buf, 0);
         }
 
         {
