@@ -79,6 +79,7 @@ void main() {
             return;
         }
         const uint newIndex = vis.temp + instance.sector_offset;
-        visibleInstances[newIndex] = instance;
+        visibleInstances[newIndex].position.xyz = instance.position.xyz;
+        //visibleInstances[newIndex] = instance;
     //}
 }

@@ -138,6 +138,6 @@ void main() {
         indices[0].vertex_offset = 0;
         indices[0].base_instance = 0;
 
-        //dispatchArguments[0].x = visibleInstanceCount;
+        dispatchArguments[0].x = visibleInstanceCount;
     }
 }
