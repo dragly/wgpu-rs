@@ -1254,6 +1254,15 @@ impl<'a> ComputePass<'a> {
     pub fn dispatch(&mut self, x: u32, y: u32, z: u32) {
         wgn::wgpu_compute_pass_dispatch(self.id, x, y, z);
     }
+
+    // TODO document
+    pub fn dispatch_indirect(&mut self, indirect_buffer: &Buffer, indirect_offset: BufferAddress) {
+        wgn::wgpu_compute_pass_dispatch_indirect(
+            self.id, 
+            indirect_buffer.id,
+            indirect_offset
+        );
+    }
 }
 
 impl<'a> Drop for ComputePass<'a> {
