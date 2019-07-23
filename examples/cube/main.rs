@@ -42,6 +42,13 @@ struct DrawArguments {
     base_instance: u32,
 }
 
+#[derive(Clone, Copy)]
+struct DispatchArguments {
+    x: u32,
+    y: u32,
+    z: u32,
+}
+
 #[repr(C)]
 struct OcclusionUniforms {
     proj: [[f32; 4]; 4],
@@ -261,6 +268,7 @@ struct Example {
     width: u32,
     height: u32,
     sector_group_count: usize,
+    dispatch_buf: wgpu::Buffer,
 }
 
 impl Example {
@@ -372,6 +380,19 @@ impl framework::Example for Example {
                 wgpu::BufferUsage::INDIRECT | wgpu::BufferUsage::TRANSFER_SRC | wgpu::BufferUsage::STORAGE,
             )
             .fill_from_slice(&draw_data);
+
+        let dispatch_data = vec![DispatchArguments{
+            x: 1,
+            y: 1,
+            z: 1,
+        }];
+        let dispatch_buf = device
+            .create_buffer_mapped(
+                1,
+                wgpu::BufferUsage::INDIRECT | wgpu::BufferUsage::TRANSFER_SRC | wgpu::BufferUsage::STORAGE,
+            )
+            .fill_from_slice(&dispatch_data);
+
 
         // Create pipeline layout
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -806,6 +827,7 @@ impl framework::Example for Example {
 
         let depth_texture = create_depth_texture(device, sc_desc.width, sc_desc.height);
 
+        //
         // Done
         let init_command_buf = init_encoder.finish();
         device.get_queue().submit(&[init_command_buf]);
@@ -839,6 +861,7 @@ impl framework::Example for Example {
             width: sc_desc.width,
             height: sc_desc.height,
             sector_group_count,
+            dispatch_buf,
         }
     }
 
@@ -930,7 +953,8 @@ impl framework::Example for Example {
             //cpass.dispatch(self.instance_count as u32, 1, 1);
             //let count = (self.instance_count / 1024 + 1);
             let count = self.instance_count;
-            cpass.dispatch(count as u32, 1, 1);
+            //cpass.dispatch(count as u32, 1, 1);
+            cpass.dispatch_indirect(&self.dispatch_buf, 0);
         }
 
         {
