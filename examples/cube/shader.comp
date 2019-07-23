@@ -17,13 +17,19 @@ struct DrawArguments {
 struct Instance {
     vec4 position;
     vec4 size;
+    uint sector_id;
+    uint sector_offset;
+};
+
+struct Sector {
+    vec4 bbox_min;
+    vec4 bbox_max;
+    uint instance_count;
 };
 
 struct Visibility {
-    uint visibility;
+    uint visible;
     uint temp;
-    uint padding;
-    uint padding2;
 };
 
 layout(set = 0, binding = 0) buffer PrimeIndices {
@@ -41,6 +47,9 @@ layout(set = 0, binding = 3) buffer VisibleInstances {
 layout(set = 0, binding = 4) buffer GroupSums {
     uint[] groupSums;
 };
+layout(set = 0, binding = 5) buffer Sectors {
+    Sector[] sectors;
+};
 
 layout(set = 1, binding = 0) uniform Locals {
     mat4 u_Transform;
@@ -53,30 +62,19 @@ shared uint temp[LOCAL_SIZE];
 shared uint vis[LOCAL_SIZE];
 
 void main() {
-    const uint global_instance_count = instances.length();
-    uint local_instance_count = LOCAL_SIZE;
+    const uint global_sector_count = sectors.length();
+    uint local_sector_count = LOCAL_SIZE;
     const uint global = gl_GlobalInvocationID.x;
     const uint local = gl_LocalInvocationID.x;
     const uint workGroup = gl_WorkGroupID.x;
 
-    if (global < global_instance_count) {
-        Instance instance = instances[global];
-
-        //vec4 position = u_Transform * vec4(instance.position.xyz, 1.0);
-        const uint corner_count = 8;
-        vec3 corners[corner_count];
-        corners[0] = vec3(-1.0, -1.0, -1.0);
-        corners[1] = vec3(-1.0, -1.0, 1.0);
-        corners[2] = vec3(-1.0, 1.0, -1.0);
-        corners[3] = vec3(-1.0, 1.0, 1.0);
-        corners[4] = vec3(1.0, -1.0, -1.0);
-        corners[5] = vec3(1.0, -1.0, 1.0);
-        corners[6] = vec3(1.0, 1.0, -1.0);
-        corners[7] = vec3(1.0, 1.0, 1.0);
+    if (global < global_sector_count) {
+        Sector sector = sectors[global];
 
         bool visible = false;
-        for (int j = 0; j < corner_count; j++) {
-            vec4 position = vec4(instance.position.xyz + instance.size.xyz * corners[j], 1.0);
+        for (int j = 0; j < 2; j++) {
+            vec4 bbox_corner = (j == 0) ? sector.bbox_min : sector.bbox_max;
+            vec4 position = vec4(bbox_corner.xyz, 1.0);
             position = u_Transform * position;
             position.xyz /= position.w;
             position.xy = clamp(position.xy, -1, 1);
@@ -88,14 +86,14 @@ void main() {
         }
 
         vis[local] = uint(visible);
-        temp[local] = vis[local];
+        temp[local] = uint(visible) * sector.instance_count;
     } else {
         vis[local] = 0;
         temp[local] = 0;
     }
 
     int o = 1;
-    for (uint d = local_instance_count / 2; d > 0; d /= 2) {
+    for (uint d = local_sector_count / 2; d > 0; d /= 2) {
         barrier();
         memoryBarrierShared();
 
@@ -113,12 +111,12 @@ void main() {
     if (local == 0) {
         // After the first pass, the last element contains the instance count,
         // but we need to zero it out for the second pass.
-        uint lastNumber = temp[local_instance_count - 1];
+        uint lastNumber = temp[local_sector_count - 1];
         groupSums[workGroup] = lastNumber;
-        temp[local_instance_count - 1] = 0;
+        temp[local_sector_count - 1] = 0;
     }
 
-    for (int d = 1; d < local_instance_count; d *= 2) {
+    for (int d = 1; d < local_sector_count; d *= 2) {
         barrier();
         memoryBarrierShared();
         o /= 2;
@@ -134,8 +132,8 @@ void main() {
     barrier();
     memoryBarrierShared();
 
-    if (global < global_instance_count) {
-        visibility[global].visibility = vis[local];
+    if (global < global_sector_count) {
+        visibility[global].visible = vis[local];
         visibility[global].temp = temp[local];
     }
 }
