@@ -17,13 +17,19 @@ struct DrawArguments {
 struct Instance {
     vec4 position;
     vec4 size;
+    uint sector_id;
+    uint sector_offset;
+};
+
+struct Sector {
+    vec4 bbox_min;
+    vec4 bbox_max;
+    uint instance_count;
 };
 
 struct Visibility {
-    uint visibility;
+    uint visible;
     uint temp;
-    uint padding;
-    uint padding2;
 };
 
 layout(set = 0, binding = 0) buffer PrimeIndices {
@@ -40,6 +46,9 @@ layout(set = 0, binding = 3) buffer VisibleInstances {
 };
 layout(set = 0, binding = 4) buffer GroupSums {
     uint[] groupSums;
+};
+layout(set = 0, binding = 5) buffer Sectors {
+    Sector[] sectors;
 };
 
 layout(set = 1, binding = 0) uniform Locals {

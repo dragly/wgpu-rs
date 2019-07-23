@@ -1,8 +1,8 @@
 #version 450
 
-const uint LOCAL_SIZE = 1024;
+//const uint LOCAL_SIZE = 1024;
 
-layout (local_size_x = LOCAL_SIZE, local_size_y = 1, local_size_z = 1) in;
+//layout (local_size_x = LOCAL_SIZE, local_size_y = 1, local_size_z = 1) in;
 //layout (local_size_x = 8, local_size_y = 1, local_size_z = 1) in;
 //layout (local_size_x = 9, local_size_y = 1, local_size_z = 1) in;
 
@@ -17,13 +17,19 @@ struct DrawArguments {
 struct Instance {
     vec4 position;
     vec4 size;
+    uint sector_id;
+    uint sector_offset;
+};
+
+struct Sector {
+    vec4 bbox_min;
+    vec4 bbox_max;
+    uint instance_count;
 };
 
 struct Visibility {
-    uint visibility;
+    uint visible;
     uint temp;
-    uint padding;
-    uint padding2;
 };
 
 layout(set = 0, binding = 0) buffer PrimeIndices {
@@ -41,6 +47,9 @@ layout(set = 0, binding = 3) buffer VisibleInstances {
 layout(set = 0, binding = 4) buffer GroupSums {
     uint[] groupSums;
 };
+layout(set = 0, binding = 5) buffer Sectors {
+    Sector[] sectors;
+};
 
 layout(set = 1, binding = 0) uniform Locals {
     mat4 u_Transform;
@@ -49,20 +58,18 @@ layout(set = 1, binding = 1) uniform texture2D t_Color;
 //layout(set = 1, binding = 1) uniform sampler2D t_Color;
 layout(set = 1, binding = 2) uniform sampler s_Color;
 
-shared uint temp[LOCAL_SIZE];
-shared uint vis[LOCAL_SIZE];
-
 void main() {
     const uint global_instance_count = instances.length();
     const uint global = gl_GlobalInvocationID.x;
-    const uint local = gl_LocalInvocationID.x;
-    const uint workGroup = gl_WorkGroupID.x;
 
-    if (global < global_instance_count) {
-        visibility[global].temp += groupSums[workGroup];
-        if (visibility[global].visibility > 0) {
-            visibleInstances[visibility[global].temp] = instances[global];
-            //visibleInstances[visibility[global].temp].position.xyz = instances[global].position.xyz;
+    //if (global < global_instance_count) {
+        Instance instance = instances[global];
+        Sector sector = sectors[instance.sector_id];
+        Visibility vis = visibility[instance.sector_id];
+        if (vis.visible == 0) {
+            return;
         }
-    }
+        const uint newIndex = vis.temp + instance.sector_offset;
+        visibleInstances[newIndex] = instance;
+    //}
 }

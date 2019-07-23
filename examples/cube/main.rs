@@ -9,19 +9,28 @@ struct Vertex {
     _tex_coord: [f32; 2],
 }
 
+#[repr(C, align(16))]
+#[derive(Clone, Copy)]
+struct Sector {
+    bbox_min: [f32; 4],
+    bbox_max: [f32; 4],
+    instance_count: u32,
+}
+
+#[repr(C, align(16))]
 #[derive(Clone, Copy)]
 struct Instance {
     _pos: [f32; 4],
     _size: [f32; 4],
+    sector_id: u32,
+    sector_offset: u32,
 }
 
-#[repr(C)]
+#[repr(C, align(8))]
 #[derive(Clone, Copy)]
 struct Visibility {
-    visibility: u32,
+    visible: u32,
     temp: u32,
-    _padding: u32,
-    _padding2: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -120,38 +129,67 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
     (vertex_data.to_vec(), index_data.to_vec())
 }
 
-const instance_side_count: u64 = 80;
+const instance_side_count: u64 = 20;
+const sector_side_count: u64 = 6;
+const total_instance_count: u64 = sector_side_count * sector_side_count * sector_side_count + instance_side_count * instance_side_count * instance_side_count;
 
-fn create_instances() -> Vec<Instance> {
+fn create_instances() -> (Vec<Sector>, Vec<Instance>) {
+    let mut sectors = Vec::new();
     let mut instances = Vec::new();
+    let mut sector_id = 0;
     let area = 8.0;
-    let count = instance_side_count;
-    for i in 0..count {
-        for j in 0..count {
-            for k in 0..count {
-                let x = area * ((i as f32) / (count as f32) - 0.5);
-                let y = area * ((j as f32) / (count as f32) - 0.5);
-                let z = area * ((k as f32) / (count as f32) - 0.5);
-                let s = 0.4 * area / count as f32;
-                instances.push(Instance {
-                    _pos: [x, y, z, 0.0],
-                    _size: [s, s, s, 0.0],
+    let sector_size = area / sector_side_count as f32;
+    let mut global_offset = 0;
+    for si in 0..sector_side_count {
+        for sj in 0..sector_side_count {
+            for sk in 0..sector_side_count {
+                let sx = area * ((si as f32) / (sector_side_count as f32) - 0.5);
+                let sy = area * ((sj as f32) / (sector_side_count as f32) - 0.5);
+                let sz = area * ((sk as f32) / (sector_side_count as f32) - 0.5);
+                let mut sector_offset = 0;
+                for i in 0..instance_side_count {
+                    for j in 0..instance_side_count {
+                        for k in 0..instance_side_count {
+                            let x = sx + area * ((i as f32) / ((sector_side_count * instance_side_count) as f32));
+                            let y = sy + area * ((j as f32) / ((sector_side_count * instance_side_count) as f32));
+                            let z = sz + area * ((k as f32) / ((sector_side_count * instance_side_count) as f32));
+                            let s = 0.4 * area / ((sector_side_count * instance_side_count) as f32);
+                            instances.push(Instance {
+                                _pos: [x, y, z, 0.0],
+                                _size: [s, s, s, 0.0],
+                                sector_id,
+                                sector_offset,
+                            });
+                            sector_offset += 1;
+                            global_offset += 1;
+                        }
+                    }
+                }
+                sectors.push(Sector {
+                    bbox_min: [sx, sy, sz, 0.0],
+                    bbox_max: [sx, sy, sz, 0.0],
+                    instance_count: sector_offset,
                 });
+                sector_id += 1;
             }
         }
     }
-    instances
+    (sectors, instances)
 }
 
 fn create_occluders() -> Vec<Instance> {
     vec![
         Instance {
             _pos: [0.0f32, 6.0, 0.0, 0.0],
-            _size: [5.0f32, 0.5, 6.0, 0.0]
+            _size: [5.0f32, 0.5, 6.0, 0.0],
+            sector_id: 0,
+            sector_offset: 0,
         },
         Instance {
             _pos: [0.0f32, -6.0, 0.0, 0.0],
-            _size: [5.0f32, 0.5, 6.0, 0.0]
+            _size: [5.0f32, 0.5, 6.0, 0.0],
+            sector_id: 0,
+            sector_offset: 0,
         }
     ]
 }
@@ -203,6 +241,7 @@ struct Example {
     pipeline: wgpu::RenderPipeline,
     compute_pipeline: wgpu::ComputePipeline,
     group_scan_pipeline: wgpu::ComputePipeline,
+    sector_insertion_pipeline: wgpu::ComputePipeline,
     instance_insertion_pipeline: wgpu::ComputePipeline,
     compute_bind_group: wgpu::BindGroup,
     draw_data: Vec<DrawArguments>,
@@ -221,7 +260,7 @@ struct Example {
     yaw: f32,
     width: u32,
     height: u32,
-    group_count: usize,
+    sector_group_count: usize,
 }
 
 impl Example {
@@ -259,6 +298,8 @@ impl framework::Example for Example {
     fn init(sc_desc: &wgpu::SwapChainDescriptor, device: &mut wgpu::Device) -> Self {
         use std::mem;
 
+        println!("Total instance count: {}", total_instance_count);
+
         let mut init_encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
 
@@ -273,12 +314,19 @@ impl framework::Example for Example {
             .create_buffer_mapped(index_data.len(), wgpu::BufferUsage::INDEX)
             .fill_from_slice(&index_data);
 
-        let instance_size = mem::size_of::<Instance>();
-        let instance_data = create_instances();
+        let (sector_data, instance_data) = create_instances();
+
         let instance_buf = device
             .create_buffer_mapped(instance_data.len(), wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::STORAGE)
             .fill_from_slice(&instance_data);
+        let instance_size = mem::size_of::<Instance>();
         let instance_data_size = (instance_data.len() * instance_size) as wgpu::BufferAddress;
+
+        let sector_buf = device
+            .create_buffer_mapped(sector_data.len(), wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::STORAGE)
+            .fill_from_slice(&sector_data);
+        let sector_size = mem::size_of::<Sector>();
+        let sector_data_size = (sector_data.len() * sector_size) as wgpu::BufferAddress;
 
         // TODO do not fill here
         let visible_instance_buf = device
@@ -599,6 +647,10 @@ impl framework::Example for Example {
             framework::load_glsl(include_str!("group_scan.comp"), framework::ShaderStage::Compute);
         let group_scan_module = device.create_shader_module(&group_scan_bytes);
 
+        let sector_insertion_bytes =
+            framework::load_glsl(include_str!("sector_insertion.comp"), framework::ShaderStage::Compute);
+        let sector_insertion_module = device.create_shader_module(&sector_insertion_bytes);
+
         let instance_insertion_bytes =
             framework::load_glsl(include_str!("instance_insertion.comp"), framework::ShaderStage::Compute);
         let instance_insertion_module = device.create_shader_module(&instance_insertion_bytes);
@@ -633,27 +685,34 @@ impl framework::Example for Example {
                     visibility: wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::StorageBuffer,
                 },
+                wgpu::BindGroupLayoutBinding {
+                    binding: 5,
+                    visibility: wgpu::ShaderStage::COMPUTE,
+                    ty: wgpu::BindingType::StorageBuffer,
+                },
             ],
         });
 
         let local_size = 1024;
-        let group_count = std::cmp::max(1, instance_data.len() / local_size);
-        println!("GROUP COUNT {}", group_count);
-        let group_sums = vec![0 as u32; group_count];
+        let sector_group_count = std::cmp::max(1, sector_data.len() / local_size);
+        println!("GROUP COUNT {}", sector_group_count);
+
+        // TODO find a way to support larger group counts
+        assert!(sector_group_count < 1024);
+
+        let group_sums = vec![0 as u32; sector_group_count];
         let group_sum_buf = device
                 .create_buffer_mapped(
-                    group_count,
+                    sector_group_count,
                     wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::TRANSFER_SRC,
                 )
                 .fill_from_slice(&group_sums);
         let group_data_size = (group_sums.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress;
 
         let visibility_data = vec![Visibility{
-            visibility: 0,
+            visible: 0,
             temp: 0,
-            _padding: 0,
-            _padding2: 0,
-        }; instance_data.len()];
+        }; sector_data.len()];
         let visibility_buf = device
             .create_buffer_mapped(visibility_data.len(), wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::TRANSFER_SRC)
             .fill_from_slice(&visibility_data);
@@ -698,6 +757,13 @@ impl framework::Example for Example {
                         range: 0 .. group_data_size,
                     },
                 },
+                wgpu::Binding {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Buffer {
+                        buffer: &sector_buf,
+                        range: 0 .. sector_data_size,
+                    },
+                },
             ],
 
         });
@@ -718,6 +784,14 @@ impl framework::Example for Example {
             layout: &compute_pipeline_layout,
             compute_stage: wgpu::PipelineStageDescriptor {
                 module: &group_scan_module,
+                entry_point: "main",
+            },
+        });
+
+        let sector_insertion_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            layout: &compute_pipeline_layout,
+            compute_stage: wgpu::PipelineStageDescriptor {
+                module: &sector_insertion_module,
                 entry_point: "main",
             },
         });
@@ -745,6 +819,7 @@ impl framework::Example for Example {
             pipeline,
             compute_pipeline,
             group_scan_pipeline,
+            sector_insertion_pipeline,
             instance_insertion_pipeline,
             compute_bind_group,
             draw_data,
@@ -763,7 +838,7 @@ impl framework::Example for Example {
             yaw: 0.5,
             width: sc_desc.width,
             height: sc_desc.height,
-            group_count,
+            sector_group_count,
         }
     }
 
@@ -823,11 +898,8 @@ impl framework::Example for Example {
             cpass.set_bind_group(1, &self.bind_group, &[]);
             //cpass.dispatch(self.draw_data.len() as u32, 1, 1);
             //cpass.dispatch(self.instance_count as u32, 1, 1);
-            cpass.dispatch(self.group_count as u32, 1, 1);
+            cpass.dispatch(self.sector_group_count as u32, 1, 1);
         }
-
-        // TODO find a way to support larger group counts
-        assert!(self.group_count < 1024);
 
         {
             let mut cpass = encoder.begin_compute_pass();
@@ -841,12 +913,24 @@ impl framework::Example for Example {
 
         {
             let mut cpass = encoder.begin_compute_pass();
+            cpass.set_pipeline(&self.sector_insertion_pipeline);
+            cpass.set_bind_group(0, &self.compute_bind_group, &[]);
+            cpass.set_bind_group(1, &self.bind_group, &[]);
+            //cpass.dispatch(self.draw_data.len() as u32, 1, 1);
+            //cpass.dispatch(self.instance_count as u32, 1, 1);
+            cpass.dispatch(self.sector_group_count as u32, 1, 1);
+        }
+
+        {
+            let mut cpass = encoder.begin_compute_pass();
             cpass.set_pipeline(&self.instance_insertion_pipeline);
             cpass.set_bind_group(0, &self.compute_bind_group, &[]);
             cpass.set_bind_group(1, &self.bind_group, &[]);
             //cpass.dispatch(self.draw_data.len() as u32, 1, 1);
             //cpass.dispatch(self.instance_count as u32, 1, 1);
-            cpass.dispatch(self.group_count as u32, 1, 1);
+            //let count = (self.instance_count / 1024 + 1);
+            let count = self.instance_count;
+            cpass.dispatch(count as u32, 1, 1);
         }
 
         {
@@ -894,19 +978,19 @@ impl framework::Example for Example {
             //});
         //encoder.copy_buffer_to_buffer(&self.visibility_buf, 0, &temp_buf, 0, self.visibility_data_size);
         
-        let group_sum_buf = device
-            .create_buffer(&wgpu::BufferDescriptor {
-                size: self.group_count as u64,
-                usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
-            });
-        encoder.copy_buffer_to_buffer(&self.group_sum_buf, 0, &group_sum_buf, 0, (self.group_count * std::mem::size_of::<u32>()) as u64);
+        //let group_sum_buf = device
+            //.create_buffer(&wgpu::BufferDescriptor {
+                //size: self.sector_group_count as u64,
+                //usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
+            //});
+        //encoder.copy_buffer_to_buffer(&self.group_sum_buf, 0, &group_sum_buf, 0, (self.sector_group_count * std::mem::size_of::<u32>()) as u64);
 
-        let arg_buf = device
-            .create_buffer(&wgpu::BufferDescriptor {
-                size: std::mem::size_of::<DrawArguments>() as u64,
-                usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
-            });
-        encoder.copy_buffer_to_buffer(&self.draw_buf, 0, &arg_buf, 0, std::mem::size_of::<DrawArguments>() as u64);
+        //let arg_buf = device
+            //.create_buffer(&wgpu::BufferDescriptor {
+                //size: std::mem::size_of::<DrawArguments>() as u64,
+                //usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
+            //});
+        //encoder.copy_buffer_to_buffer(&self.draw_buf, 0, &arg_buf, 0, std::mem::size_of::<DrawArguments>() as u64);
 
         self.frame_id += 1;
 
