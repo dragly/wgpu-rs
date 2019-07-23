@@ -269,6 +269,7 @@ struct Example {
     height: u32,
     sector_group_count: usize,
     dispatch_buf: wgpu::Buffer,
+    previous_time: std::time::Instant,
 }
 
 impl Example {
@@ -875,6 +876,7 @@ impl framework::Example for Example {
             height: sc_desc.height,
             sector_group_count,
             dispatch_buf,
+            previous_time: std::time::Instant::now(),
         }
     }
 
@@ -1032,6 +1034,11 @@ impl framework::Example for Example {
         self.frame_id += 1;
 
         device.get_queue().submit(&[encoder.finish()]);
+
+        let diff_time = self.previous_time.elapsed();
+        self.previous_time = std::time::Instant::now();
+
+        println!("Frame time {}", (diff_time.as_secs() * 1_000) + (diff_time.subsec_nanos() / 1_000_000) as u64);
 
         //temp_buf.map_read_async(0, self.visibility_data_size, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
             //if let Ok(mapping) = result {
