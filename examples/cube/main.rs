@@ -966,8 +966,8 @@ impl framework::Example for Example {
             //cpass.dispatch(self.instance_count as u32, 1, 1);
             //let count = (self.instance_count / 1024 + 1);
             let count = self.instance_count;
-            //cpass.dispatch(count as u32, 1, 1);
-            cpass.dispatch_indirect(&self.dispatch_buf, 0);
+            cpass.dispatch(count as u32, 1, 1);
+            //cpass.dispatch_indirect(&self.dispatch_buf, 0);
         }
 
         {
