@@ -120,7 +120,7 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
     (vertex_data.to_vec(), index_data.to_vec())
 }
 
-const instance_side_count: u64 = 40;
+const instance_side_count: u64 = 100;
 
 fn create_instances() -> Vec<Instance> {
     let mut instances = Vec::new();
@@ -222,6 +222,7 @@ struct Example {
     width: u32,
     height: u32,
     group_count: usize,
+    previous_time: std::time::Instant,
 }
 
 impl Example {
@@ -764,6 +765,7 @@ impl framework::Example for Example {
             width: sc_desc.width,
             height: sc_desc.height,
             group_count,
+            previous_time: std::time::Instant::now(),
         }
     }
 
@@ -911,6 +913,11 @@ impl framework::Example for Example {
         self.frame_id += 1;
 
         device.get_queue().submit(&[encoder.finish()]);
+
+        let diff_time = self.previous_time.elapsed();
+        self.previous_time = std::time::Instant::now();
+
+        println!("Frame time {}", (diff_time.as_secs() * 1_000) + (diff_time.subsec_nanos() / 1_000_000) as u64);
 
         //temp_buf.map_read_async(0, self.visibility_data_size, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
             //if let Ok(mapping) = result {
