@@ -59,6 +59,7 @@ pub use wgn::{
     TextureViewDimension,
     VertexAttributeDescriptor,
     VertexFormat,
+    PresentMode,
 };
 
 #[cfg(feature = "gl")]
@@ -503,6 +504,7 @@ impl Instance {
         }
     }
 
+    #[cfg(not(feature = "gl"))]
     pub fn create_surface_from_xlib(
         &self,
         display: *mut *const std::ffi::c_void,
@@ -513,12 +515,14 @@ impl Instance {
         }
     }
 
+    #[cfg(not(feature = "gl"))]
     pub fn create_surface_from_macos_layer(&self, layer: *mut std::ffi::c_void) -> Surface {
         Surface {
             id: wgn::wgpu_instance_create_surface_from_macos_layer(self.id, layer),
         }
     }
 
+    #[cfg(not(feature = "gl"))]
     pub fn create_surface_from_windows_hwnd(
         &self,
         hinstance: *mut std::ffi::c_void,
@@ -1167,6 +1171,13 @@ impl<'a> RenderPass<'a> {
     /// Subsequent draw calls will discard any fragments that fall outside this region.
     pub fn set_scissor_rect(&mut self, x: u32, y: u32, w: u32, h: u32) {
         wgn::wgpu_render_pass_set_scissor_rect(self.id, x, y, w, h)
+    }
+
+    /// Sets the stencil reference.
+    /// 
+    /// Subsequent stencil tests will test against this value.
+    pub fn set_stencil_reference(&mut self, reference: u32) {
+        wgn::wgpu_render_pass_set_stencil_reference(self.id, reference)
     }
 
     /// Draws primitives from the active vertex buffer(s).
