@@ -99,6 +99,7 @@ pub fn run<E: Example>(title: &str) {
 
     let adapter = instance.get_adapter(&wgpu::AdapterDescriptor {
         power_preference: wgpu::PowerPreference::LowPower,
+        //power_preference: wgpu::PowerPreference::HighPerformance,
     });
 
     let mut device = adapter.request_device(&wgpu::DeviceDescriptor {
@@ -114,6 +115,7 @@ pub fn run<E: Example>(title: &str) {
         width: size.width.round() as u32,
         height: size.height.round() as u32,
         present_mode: wgpu::PresentMode::Vsync,
+        //present_mode: wgpu::PresentMode::NoVsync,
     };
     let mut swap_chain = device.create_swap_chain(&surface, &sc_desc);
 

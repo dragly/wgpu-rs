@@ -138,7 +138,7 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
 
 const instance_side_count: u64 = 10;
 const sector_side_count: u64 = 10;
-const total_instance_count: u64 = sector_side_count * sector_side_count * sector_side_count + instance_side_count * instance_side_count * instance_side_count;
+const total_instance_count: u64 = sector_side_count * sector_side_count * sector_side_count * instance_side_count * instance_side_count * instance_side_count;
 
 fn create_instances() -> (Vec<Sector>, Vec<Instance>) {
     let mut sectors = Vec::new();
@@ -967,7 +967,8 @@ impl framework::Example for Example {
             //cpass.dispatch(self.draw_data.len() as u32, 1, 1);
             //cpass.dispatch(self.instance_count as u32, 1, 1);
             //let count = (self.instance_count / 1024 + 1);
-            let count = self.instance_count;
+            //let count = self.instance_count / 1024 + 1;
+            let count = self.instance_count / 64 + 1;
             cpass.dispatch(count as u32, 1, 1);
             //cpass.dispatch_indirect(&self.dispatch_buf, 0);
         }
@@ -1004,7 +1005,7 @@ impl framework::Example for Example {
             //rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.instance_buf, 0)]);
             rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.visible_instance_buf, 0)]);
             rpass.draw_indexed_indirect(&self.draw_buf, 0);
-            //rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. (instance_side_count * instance_side_count * instance_side_count) as u32);
+            //rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. (total_instance_count) as u32);
 
             // redraw occluders
             rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.occluder_buf, 0)]);
@@ -1024,12 +1025,12 @@ impl framework::Example for Example {
             //});
         //encoder.copy_buffer_to_buffer(&self.group_sum_buf, 0, &group_sum_buf, 0, (self.sector_group_count * std::mem::size_of::<u32>()) as u64);
 
-        //let arg_buf = device
-            //.create_buffer(&wgpu::BufferDescriptor {
-                //size: std::mem::size_of::<DrawArguments>() as u64,
-                //usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
-            //});
-        //encoder.copy_buffer_to_buffer(&self.draw_buf, 0, &arg_buf, 0, std::mem::size_of::<DrawArguments>() as u64);
+        let arg_buf = device
+            .create_buffer(&wgpu::BufferDescriptor {
+                size: std::mem::size_of::<DrawArguments>() as u64,
+                usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
+            });
+        encoder.copy_buffer_to_buffer(&self.draw_buf, 0, &arg_buf, 0, std::mem::size_of::<DrawArguments>() as u64);
 
         self.frame_id += 1;
 
@@ -1046,11 +1047,11 @@ impl framework::Example for Example {
             //}
         //});
 
-        //arg_buf.map_read_async(0, std::mem::size_of::<DrawArguments>() as u64, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
-            //if let Ok(mapping) = result {
-                //println!("Draw arguments: {:?}", mapping.data);
-            //}
-        //});
+        arg_buf.map_read_async(0, std::mem::size_of::<DrawArguments>() as u64, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
+            if let Ok(mapping) = result {
+                println!("Draw arguments: {:?}", mapping.data);
+            }
+        });
         
         //group_sum_buf.map_read_async(0, self.group_count as u64, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
             //if let Ok(mapping) = result {
