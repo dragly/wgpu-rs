@@ -721,12 +721,12 @@ impl framework::Example for Example {
             ],
         });
 
-        let local_size = 1024;
-        let sector_group_count = std::cmp::max(1, sector_data.len() / local_size);
+        let local_size = 512;
+        let sector_group_count = sector_data.len() / local_size + 1;
         println!("GROUP COUNT {}", sector_group_count);
 
         // TODO find a way to support larger group counts
-        assert!(sector_group_count < 1024);
+        assert!(sector_group_count < local_size);
 
         let group_sums = vec![0 as u32; sector_group_count];
         let group_sum_buf = device
@@ -1039,7 +1039,7 @@ impl framework::Example for Example {
         let diff_time = self.previous_time.elapsed();
         self.previous_time = std::time::Instant::now();
 
-        println!("Frame time {}", (diff_time.as_secs() * 1_000) + (diff_time.subsec_nanos() / 1_000_000) as u64);
+        //println!("Frame time {}", (diff_time.as_secs() * 1_000) + (diff_time.subsec_nanos() / 1_000_000) as u64);
 
         //temp_buf.map_read_async(0, self.visibility_data_size, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
             //if let Ok(mapping) = result {
@@ -1049,7 +1049,7 @@ impl framework::Example for Example {
 
         arg_buf.map_read_async(0, std::mem::size_of::<DrawArguments>() as u64, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
             if let Ok(mapping) = result {
-                println!("Draw arguments: {:?}", mapping.data);
+                //println!("Draw arguments: {:?}", mapping.data);
             }
         });
         
