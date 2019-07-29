@@ -7,6 +7,12 @@ struct Vertex {
     _tex_coord: [f32; 2],
 }
 
+#[derive(Clone, Copy)]
+struct Instance {
+    _pos: [f32; 4],
+    _size: [f32; 4],
+}
+
 fn vertex(pos: [i8; 3], tc: [i8; 2]) -> Vertex {
     Vertex {
         _pos: [pos[0] as f32, pos[1] as f32, pos[2] as f32, 1.0],
@@ -63,7 +69,7 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
 fn create_texels(size: usize) -> Vec<u8> {
     use std::iter;
 
-    (0 .. size * size)
+    (0..size * size)
         .flat_map(|id| {
             // get high five for recognizing this ;)
             let cx = 3.0 * (id % size) as f32 / (size - 1) as f32 - 2.0;
@@ -87,9 +93,14 @@ struct Example {
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
     index_count: usize,
+    instance_buf: wgpu::Buffer,
+    instance_count: usize,
+    big_instance_buf: wgpu::Buffer,
+    big_instance_count: usize,
     bind_group: wgpu::BindGroup,
     uniform_buf: wgpu::Buffer,
     pipeline: wgpu::RenderPipeline,
+    cs_pipeline: wgpu::ComputePipeline,
 }
 
 impl Example {
@@ -122,6 +133,38 @@ impl framework::Example for Example {
         let index_buf = device
             .create_buffer_mapped(index_data.len(), wgpu::BufferUsage::INDEX)
             .fill_from_slice(&index_data);
+
+        let mut instance_data = Vec::new();
+        let instance_size = mem::size_of::<Instance>();
+        let count = 32;
+        for i in 0..(count * count * count) {
+            instance_data.push(Instance {
+                _pos: [
+                    -1.0 + 2.0 * ((i / (count * count)) as f32) / count as f32,
+                    -1.0 + 2.0 * (((i / count) % count) as f32) / count as f32,
+                    -1.0 + 2.0 * ((i % count) as f32) / count as f32,
+                    0.0,
+                ],
+                _size: [0.05, 0.05, 0.05, 0.0],
+            });
+        }
+        let instance_buf = device
+            .create_buffer_mapped(instance_data.len(), wgpu::BufferUsage::VERTEX)
+            .fill_from_slice(&instance_data);
+
+        let big_instance_data = vec![
+            Instance {
+                _pos: [-2.0, 0.0, 0.0, 0.0],
+                _size: [0.2, 1.0, 1.0, 0.0],
+            },
+            Instance {
+                _pos: [2.0, 0.0, 0.0, 0.0],
+                _size: [0.2, 1.0, 1.0, 0.0],
+            },
+        ];;
+        let big_instance_buf = device
+            .create_buffer_mapped(big_instance_data.len(), wgpu::BufferUsage::VERTEX)
+            .fill_from_slice(&big_instance_data);
 
         // Create pipeline layout
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -217,7 +260,7 @@ impl framework::Example for Example {
                     binding: 0,
                     resource: wgpu::BindingResource::Buffer {
                         buffer: &uniform_buf,
-                        range: 0 .. 64,
+                        range: 0..64,
                     },
                 },
                 wgpu::Binding {
@@ -238,8 +281,11 @@ impl framework::Example for Example {
             include_str!("shader.frag"),
             framework::ShaderStage::Fragment,
         );
+        let cs_bytes =
+            framework::load_glsl(include_str!("shader.comp"), framework::ShaderStage::Compute);
         let vs_module = device.create_shader_module(&vs_bytes);
         let fs_module = device.create_shader_module(&fs_bytes);
+        let cs_module = device.create_shader_module(&cs_bytes);
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             layout: &pipeline_layout,
@@ -267,23 +313,53 @@ impl framework::Example for Example {
             }],
             depth_stencil_state: None,
             index_format: wgpu::IndexFormat::Uint16,
-            vertex_buffers: &[wgpu::VertexBufferDescriptor {
-                stride: vertex_size as wgpu::BufferAddress,
-                step_mode: wgpu::InputStepMode::Vertex,
-                attributes: &[
-                    wgpu::VertexAttributeDescriptor {
-                        format: wgpu::VertexFormat::Float4,
-                        offset: 0,
-                        shader_location: 0,
-                    },
-                    wgpu::VertexAttributeDescriptor {
-                        format: wgpu::VertexFormat::Float2,
-                        offset: 4 * 4,
-                        shader_location: 1,
-                    },
-                ],
-            }],
+            vertex_buffers: &[
+                wgpu::VertexBufferDescriptor {
+                    stride: vertex_size as wgpu::BufferAddress,
+                    step_mode: wgpu::InputStepMode::Vertex,
+                    attributes: &[
+                        wgpu::VertexAttributeDescriptor {
+                            format: wgpu::VertexFormat::Float4,
+                            offset: 0,
+                            shader_location: 0,
+                        },
+                        wgpu::VertexAttributeDescriptor {
+                            format: wgpu::VertexFormat::Float2,
+                            offset: 4 * 4,
+                            shader_location: 1,
+                        },
+                    ],
+                },
+                wgpu::VertexBufferDescriptor {
+                    stride: instance_size as wgpu::BufferAddress,
+                    step_mode: wgpu::InputStepMode::Instance,
+                    attributes: &[
+                        wgpu::VertexAttributeDescriptor {
+                            format: wgpu::VertexFormat::Float4,
+                            offset: 0,
+                            shader_location: 2,
+                        },
+                        wgpu::VertexAttributeDescriptor {
+                            format: wgpu::VertexFormat::Float4,
+                            offset: 4 * 4,
+                            shader_location: 3,
+                        },
+                    ],
+                },
+            ],
             sample_count: 1,
+        });
+
+        let cs_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            bind_group_layouts: &[],
+        });
+
+        let cs_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            layout: &cs_pipeline_layout,
+            compute_stage: wgpu::PipelineStageDescriptor {
+                module: &cs_module,
+                entry_point: "main",
+            },
         });
 
         // Done
@@ -293,9 +369,14 @@ impl framework::Example for Example {
             vertex_buf,
             index_buf,
             index_count: index_data.len(),
+            instance_buf,
+            instance_count: instance_data.len(),
+            big_instance_buf,
+            big_instance_count: big_instance_data.len(),
             bind_group,
             uniform_buf,
             pipeline,
+            cs_pipeline,
         }
     }
 
@@ -320,6 +401,13 @@ impl framework::Example for Example {
     fn render(&mut self, frame: &wgpu::SwapChainOutput, device: &mut wgpu::Device) {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
+
+        {
+            let mut cpass = encoder.begin_compute_pass();
+            cpass.set_pipeline(&self.cs_pipeline);
+            cpass.dispatch(1, 1, 1);
+        }
+
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
@@ -339,8 +427,10 @@ impl framework::Example for Example {
             rpass.set_pipeline(&self.pipeline);
             rpass.set_bind_group(0, &self.bind_group, &[]);
             rpass.set_index_buffer(&self.index_buf, 0);
-            rpass.set_vertex_buffers(&[(&self.vertex_buf, 0)]);
-            rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. 1);
+            rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.instance_buf, 0)]);
+            rpass.draw_indexed(0..self.index_count as u32, 0, 0..self.instance_count as u32);
+            rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.big_instance_buf, 0)]);
+            rpass.draw_indexed(0..self.index_count as u32, 0, 0..self.big_instance_count as u32);
         }
 
         device.get_queue().submit(&[encoder.finish()]);
