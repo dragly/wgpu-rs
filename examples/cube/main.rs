@@ -136,8 +136,8 @@ fn create_vertices() -> (Vec<Vertex>, Vec<u16>) {
     (vertex_data.to_vec(), index_data.to_vec())
 }
 
-const instance_side_count: u64 = 10;
-const sector_side_count: u64 = 10;
+const instance_side_count: u64 = 2;
+const sector_side_count: u64 = 2;
 const total_instance_count: u64 = sector_side_count * sector_side_count * sector_side_count * instance_side_count * instance_side_count * instance_side_count;
 
 fn create_instances() -> (Vec<Sector>, Vec<Instance>) {
@@ -268,8 +268,11 @@ struct Example {
     width: u32,
     height: u32,
     sector_group_count: usize,
+    group_data_size: wgpu::BufferAddress,
     dispatch_buf: wgpu::Buffer,
     previous_time: std::time::Instant,
+    debug_buf: wgpu::Buffer,
+    debug_data_size: wgpu::BufferAddress,
 }
 
 impl Example {
@@ -346,6 +349,12 @@ impl framework::Example for Example {
         let occluder_buf = device
             .create_buffer_mapped(occluder_data.len(), wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::STORAGE)
             .fill_from_slice(&occluder_data);
+
+        let debug_data = vec![0 as u32; 512];
+        let debug_buf = device
+            .create_buffer_mapped(debug_data.len(), wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::TRANSFER_SRC)
+            .fill_from_slice(&debug_data);
+        let debug_data_size = (debug_data.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress;
 
         println!("INSTANCE COUNT: {}", instance_data.len());
 
@@ -718,6 +727,11 @@ impl framework::Example for Example {
                     visibility: wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::StorageBuffer,
                 },
+                wgpu::BindGroupLayoutBinding {
+                    binding: 7,
+                    visibility: wgpu::ShaderStage::COMPUTE,
+                    ty: wgpu::BindingType::StorageBuffer,
+                },
             ],
         });
 
@@ -799,6 +813,13 @@ impl framework::Example for Example {
                         range: 0 .. dispatch_data_size,
                     },
                 },
+                wgpu::Binding {
+                    binding: 7,
+                    resource: wgpu::BindingResource::Buffer {
+                        buffer: &debug_buf,
+                        range: 0 .. debug_data_size,
+                    },
+                },
             ],
 
         });
@@ -875,8 +896,11 @@ impl framework::Example for Example {
             width: sc_desc.width,
             height: sc_desc.height,
             sector_group_count,
+            group_data_size,
             dispatch_buf,
             previous_time: std::time::Instant::now(),
+            debug_buf,
+            debug_data_size,
         }
     }
 
@@ -904,7 +928,7 @@ impl framework::Example for Example {
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
 
         encoder.copy_buffer_to_buffer(&temp_buf, 0, &self.uniform_buf, 0, 64);
-        encoder.copy_buffer_to_buffer(&temp_buf, 0, &self.occlusion_pass.uniform_buf, 0, 64);
+        //encoder.copy_buffer_to_buffer(&temp_buf, 0, &self.occlusion_pass.uniform_buf, 0, 64);
 
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -968,7 +992,7 @@ impl framework::Example for Example {
             //cpass.dispatch(self.instance_count as u32, 1, 1);
             //let count = (self.instance_count / 1024 + 1);
             //let count = self.instance_count / 1024 + 1;
-            let count = self.instance_count / 64 + 1;
+            let count = self.instance_count / 512 + 1;
             cpass.dispatch(count as u32, 1, 1);
             //cpass.dispatch_indirect(&self.dispatch_buf, 0);
         }
@@ -1002,28 +1026,67 @@ impl framework::Example for Example {
             rpass.set_index_buffer(&self.index_buf, 0);
 
             // draw others
-            //rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.instance_buf, 0)]);
             rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.visible_instance_buf, 0)]);
+            //rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. self.instance_count as u32);
             rpass.draw_indexed_indirect(&self.draw_buf, 0);
-            //rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. (total_instance_count) as u32);
+        }
+
+        // TODO figure out why we need a second render pass to avoid flickering here
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                    attachment: &frame.view,
+                    resolve_target: None,
+                    load_op: wgpu::LoadOp::Load,
+                    store_op: wgpu::StoreOp::Store,
+                    clear_color: wgpu::Color {
+                        r: 0.1,
+                        g: 0.2,
+                        b: 0.3,
+                        a: 1.0,
+                    },
+                }],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
+                        attachment: &self.depth_texture,
+                        depth_load_op: wgpu::LoadOp::Load,
+                        depth_store_op: wgpu::StoreOp::Store,
+                        stencil_load_op: wgpu::LoadOp::Load,
+                        stencil_store_op: wgpu::StoreOp::Store,
+                        clear_depth: 1.0,
+                        clear_stencil: 0,
+                }),
+            });
+            rpass.set_pipeline(&self.pipeline);
+            rpass.set_bind_group(0, &self.bind_group, &[]);
+            rpass.set_index_buffer(&self.index_buf, 0);
 
             // redraw occluders
+            rpass.set_pipeline(&self.pipeline);
+            rpass.set_bind_group(0, &self.bind_group, &[]);
+            rpass.set_index_buffer(&self.index_buf, 0);
             rpass.set_vertex_buffers(&[(&self.vertex_buf, 0), (&self.occluder_buf, 0)]);
             rpass.draw_indexed(0 .. self.index_count as u32, 0, 0 .. self.occluder_count as u32);
         }
-        //let temp_buf = device
-            //.create_buffer(&wgpu::BufferDescriptor {
-                //size: self.visibility_data_size,
-                //usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
-            //});
-        //encoder.copy_buffer_to_buffer(&self.visibility_buf, 0, &temp_buf, 0, self.visibility_data_size);
+        let temp_buf = device
+            .create_buffer(&wgpu::BufferDescriptor {
+                size: self.visibility_data_size,
+                usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
+            });
+        encoder.copy_buffer_to_buffer(&self.visibility_buf, 0, &temp_buf, 0, self.visibility_data_size);
         
-        //let group_sum_buf = device
-            //.create_buffer(&wgpu::BufferDescriptor {
-                //size: self.sector_group_count as u64,
-                //usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
-            //});
-        //encoder.copy_buffer_to_buffer(&self.group_sum_buf, 0, &group_sum_buf, 0, (self.sector_group_count * std::mem::size_of::<u32>()) as u64);
+        let group_sum_buf = device
+            .create_buffer(&wgpu::BufferDescriptor {
+                size: self.group_data_size,
+                usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
+            });
+        encoder.copy_buffer_to_buffer(&self.group_sum_buf, 0, &group_sum_buf, 0, self.group_data_size);
+
+        let debug_buf = device
+            .create_buffer(&wgpu::BufferDescriptor {
+                size: self.debug_data_size,
+                usage: wgpu::BufferUsage::TRANSFER_DST | wgpu::BufferUsage::MAP_READ
+            });
+        encoder.copy_buffer_to_buffer(&self.debug_buf, 0, &debug_buf, 0, self.debug_data_size);
 
         let arg_buf = device
             .create_buffer(&wgpu::BufferDescriptor {
@@ -1039,25 +1102,31 @@ impl framework::Example for Example {
         let diff_time = self.previous_time.elapsed();
         self.previous_time = std::time::Instant::now();
 
-        //println!("Frame time {}", (diff_time.as_secs() * 1_000) + (diff_time.subsec_nanos() / 1_000_000) as u64);
+        println!("Frame time {}", (diff_time.as_secs() * 1_000) + (diff_time.subsec_nanos() / 1_000_000) as u64);
 
-        //temp_buf.map_read_async(0, self.visibility_data_size, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
-            //if let Ok(mapping) = result {
-                //println!("Visibility: {:?}", mapping.data);
-            //}
-        //});
+        temp_buf.map_read_async(0, self.visibility_data_size, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
+            if let Ok(mapping) = result {
+                println!("Visibility: {:?}", mapping.data);
+            }
+        });
 
         arg_buf.map_read_async(0, std::mem::size_of::<DrawArguments>() as u64, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
             if let Ok(mapping) = result {
-                //println!("Draw arguments: {:?}", mapping.data);
+                println!("Draw arguments: {:?}", mapping.data);
             }
         });
         
-        //group_sum_buf.map_read_async(0, self.group_count as u64, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
-            //if let Ok(mapping) = result {
-                //println!("Group sums: {:?}", mapping.data);
-            //}
-        //});
+        group_sum_buf.map_read_async(0, self.group_data_size as u64, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
+            if let Ok(mapping) = result {
+                println!("Group sums: {:?}", mapping.data);
+            }
+        });
+        
+        debug_buf.map_read_async(0, self.debug_data_size as u64, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
+            if let Ok(mapping) = result {
+                println!("Debug buf: {:?}", mapping.data);
+            }
+        });
     }
 }
 

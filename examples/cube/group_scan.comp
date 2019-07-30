@@ -59,6 +59,9 @@ layout(set = 0, binding = 5) buffer Sectors {
 layout(set = 0, binding = 6) buffer DispatchArgumentss {
     DispatchArguments[] dispatchArguments;
 }; 
+layout(set = 0, binding = 7) buffer Debugs {
+    uint[] debug;
+}; 
 
 layout(set = 1, binding = 0) uniform Locals {
     mat4 u_Transform;
@@ -104,7 +107,6 @@ void main() {
         // but we need to zero it out for the second pass.
         uint lastNumber = temp[LOCAL_SIZE - 1];
         visibleInstanceCount = lastNumber;
-        groupSums[workGroup] = lastNumber;
         temp[LOCAL_SIZE - 1] = 0;
     }
 
@@ -126,9 +128,12 @@ void main() {
 
     if (global < global_group_count) {
         groupSums[global] = temp[local];
+        debug[local] = global;
+    } else {
+        debug[local] = 99;
     }
 
-    if (gl_GlobalInvocationID.x == 0) {
+    if (global == 0) {
         indices[0].index_count = 36;
         //indices[0].instance_count = temp[instance_count - 1];
         indices[0].instance_count = visibleInstanceCount;

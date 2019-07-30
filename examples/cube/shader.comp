@@ -59,6 +59,9 @@ layout(set = 0, binding = 5) buffer Sectors {
 layout(set = 0, binding = 6) buffer DispatchArgumentss {
     DispatchArguments[] dispatchArguments;
 }; 
+layout(set = 0, binding = 7) buffer Debugs {
+    uint[] debug;
+}; 
 
 layout(set = 1, binding = 0) uniform Locals {
     mat4 u_Transform;
@@ -140,6 +143,12 @@ void main() {
 
     barrier();
     memoryBarrierShared();
+
+    if (local == 0) {
+        debug[local] = groupSums[workGroup];
+    } else {
+        debug[local] = 77;
+    }
 
     if (global < global_sector_count) {
         visibility[global].visible = vis[local];
