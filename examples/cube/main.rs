@@ -260,6 +260,17 @@ fn main() {
     let fs_module = device.create_shader_module(&fs_bytes);
     let cs_module = device.create_shader_module(&cs_bytes);
 
+    let cs_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        bind_group_layouts: &[],
+    });
+    let cs_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        layout: &cs_pipeline_layout,
+        compute_stage: wgpu::PipelineStageDescriptor {
+            module: &cs_module,
+            entry_point: "main",
+        },
+    });
+
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         layout: &pipeline_layout,
         vertex_stage: wgpu::PipelineStageDescriptor {
@@ -332,6 +343,8 @@ fn main() {
 
         {
             let mut cpass = encoder.begin_compute_pass();
+            cpass.set_pipeline(&cs_pipeline);
+            cpass.dispatch(1, 1, 1);
         }
 
         {
