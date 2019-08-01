@@ -74,7 +74,7 @@ shared uint temp[LOCAL_SIZE];
 shared uint vis[LOCAL_SIZE];
 
 void main() {
-    const uint global_sector_count = sectors.length();
+    const int global_sector_count = sectors.length();
     uint local_sector_count = LOCAL_SIZE;
     const uint global = gl_GlobalInvocationID.x;
     const uint local = gl_LocalInvocationID.x;

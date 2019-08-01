@@ -1102,29 +1102,29 @@ impl framework::Example for Example {
         let diff_time = self.previous_time.elapsed();
         self.previous_time = std::time::Instant::now();
 
-        println!("Frame time {}", (diff_time.as_secs() * 1_000) + (diff_time.subsec_nanos() / 1_000_000) as u64);
+        //println!("Frame time {}", (diff_time.as_secs() * 1_000) + (diff_time.subsec_nanos() / 1_000_000) as u64);
 
         temp_buf.map_read_async(0, self.visibility_data_size, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
             if let Ok(mapping) = result {
-                println!("Visibility: {:?}", mapping.data);
+                //println!("Visibility: {:?}", mapping.data);
             }
         });
 
         arg_buf.map_read_async(0, std::mem::size_of::<DrawArguments>() as u64, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
             if let Ok(mapping) = result {
-                println!("Draw arguments: {:?}", mapping.data);
+                //println!("Draw arguments: {:?}", mapping.data);
             }
         });
         
         group_sum_buf.map_read_async(0, self.group_data_size as u64, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
             if let Ok(mapping) = result {
-                println!("Group sums: {:?}", mapping.data);
+                //println!("Group sums: {:?}", mapping.data);
             }
         });
         
         debug_buf.map_read_async(0, self.debug_data_size as u64, |result: wgpu::BufferMapAsyncResult<&[u32]>| {
             if let Ok(mapping) = result {
-                println!("Debug buf: {:?}", mapping.data);
+                //println!("Debug buf: {:?}", mapping.data);
             }
         });
     }
