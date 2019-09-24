@@ -7,11 +7,10 @@ use std::mem::size_of;
 fn main() {
     env_logger::init();
 
-    let instance = wgpu::Instance::new();
-
-    let adapter = instance.get_adapter(&wgpu::AdapterDescriptor {
+    let adapter = wgpu::Adapter::request(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::LowPower,
-    });
+        backends: wgpu::BackendBit::PRIMARY,
+    }).unwrap();
 
     let mut device = adapter.request_device(&wgpu::DeviceDescriptor {
         extensions: wgpu::Extensions {
@@ -26,7 +25,7 @@ fn main() {
     // The output buffer lets us retrieve the data as an array
     let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         size: (size * size) as u64 * size_of::<u32>() as u64,
-        usage: wgpu::BufferUsage::MAP_READ | wgpu::BufferUsage::TRANSFER_DST,
+        usage: wgpu::BufferUsage::MAP_READ | wgpu::BufferUsage::COPY_DST,
     });
 
     let texture_extent = wgpu::Extent3d {
@@ -42,8 +41,8 @@ fn main() {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT | wgpu::TextureUsage::TRANSFER_SRC,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT | wgpu::TextureUsage::COPY_SRC,
     });
 
     // Set the background to be red

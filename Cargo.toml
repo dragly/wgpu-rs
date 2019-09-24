@@ -1,12 +1,15 @@
 [package]
 name = "wgpu"
-version = "0.2.2"
+version = "0.3.0"
 authors = [
 	"Dzmitry Malyshau <kvark@mozilla.com>",
 	"Joshua Groves <josh@joshgroves.com>",
+	"Lucas Kent <rubickent@gmail.com>",
+	"kyren <kerriganw@gmail.com>",
+	"Cormac O'Brien <cormac@c-obrien.org>",
 ]
 edition = "2018"
-description = "Rusty wgpu API wrapper"
+description = "Rusty WebGPU API wrapper"
 homepage = "https://github.com/gfx-rs/wgpu-rs"
 repository = "https://github.com/gfx-rs/wgpu-rs"
 keywords = ["graphics"]
@@ -16,16 +19,11 @@ license = "MPL-2.0"
 
 [features]
 default = []
-metal = ["wgn/gfx-backend-metal"]
-dx11 = ["wgn/gfx-backend-dx11"]
-dx12 = ["wgn/gfx-backend-dx12"]
-vulkan = ["wgn/gfx-backend-vulkan"]
-gl = ["wgn/gfx-backend-gl"]
 
 [dependencies]
-#TODO: only depend on the published version
-wgn = { package = "wgpu-native", version = "0.2.6", features = ["local", "window-winit"], git = "https://github.com/gfx-rs/wgpu", rev = "5224bb812420e420485ee08ad8cb820695a3e6eb" }
+wgn = { package = "wgpu-native", git = "https://github.com/gfx-rs/wgpu", rev = "40fb3fcdfd38a3788bb1a358301dc9010778651b" }
 arrayvec = "0.4"
+raw-window-handle = "0.1"
 zerocopy = "0.2"
 
 [dev-dependencies]
@@ -34,7 +32,4 @@ env_logger = "0.6"
 glsl-to-spirv = "0.1"
 log = "0.4"
 png = "0.15"
-
-[patch.crates-io]
-#gfx-hal = { path = "../gfx/src/hal" }
-#gfx-backend-dx12 = { path = "../gfx/src/backend/dx12" }
+winit = "0.20.0-alpha3"

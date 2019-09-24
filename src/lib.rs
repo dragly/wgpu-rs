@@ -8,13 +8,11 @@ use std::ffi::CString;
 use std::ops::Range;
 use std::ptr;
 use std::slice;
+use std::thread;
 
-pub use wgn::winit;
 pub use wgn::{
-    AdapterDescriptor,
     AddressMode,
-    BindGroupLayoutBinding,
-    BindingType,
+    BackendBit,
     BlendDescriptor,
     BlendFactor,
     BlendOperation,
@@ -26,6 +24,7 @@ pub use wgn::{
     ColorStateDescriptor,
     ColorWrite,
     CommandEncoderDescriptor,
+    CommandBufferDescriptor,
     CompareFunction,
     CullMode,
     DepthStencilStateDescriptor,
@@ -44,6 +43,7 @@ pub use wgn::{
     PrimitiveTopology,
     RasterizationStateDescriptor,
     RenderPassDepthStencilAttachmentDescriptor,
+    RequestAdapterOptions,
     SamplerDescriptor,
     ShaderLocation,
     ShaderModuleDescriptor,
@@ -52,7 +52,7 @@ pub use wgn::{
     StencilStateFaceDescriptor,
     StoreOp,
     SwapChainDescriptor,
-    TextureAspectFlags,
+    TextureAspect,
     TextureDescriptor,
     TextureDimension,
     TextureFormat,
@@ -61,6 +61,7 @@ pub use wgn::{
     TextureViewDimension,
     VertexAttributeDescriptor,
     VertexFormat,
+    read_spirv,
 };
 
 #[cfg(feature = "gl")]
@@ -68,24 +69,18 @@ pub use wgn::glutin;
 
 //TODO: avoid heap allocating vectors during resource creation.
 #[derive(Default)]
+#[derive(Debug)]
 struct Temp {
     //bind_group_descriptors: Vec<wgn::BindGroupDescriptor>,
     //vertex_buffers: Vec<wgn::VertexBufferDescriptor>,
     command_buffers: Vec<wgn::CommandBufferId>,
 }
 
-/// A handle to an active `wgpu` instance.
-///
-/// An `Instance` represents the entire context of a running `wgpu` instance. The `Instance`
-/// allows the querying of [`Adapter`] objects and the creation of [`Surface`] objects.
-pub struct Instance {
-    id: wgn::InstanceId,
-}
-
 /// A handle to a physical graphics and/or compute device.
 ///
 /// An `Adapter` can be used to open a connection to the corresponding device on the host system,
 /// yielding a [`Device`] object.
+#[derive(Debug)]
 pub struct Adapter {
     id: wgn::AdapterId,
 }
@@ -94,17 +89,20 @@ pub struct Adapter {
 ///
 /// The `Device` is the responsible for the creation of most rendering and compute resources, as
 /// well as exposing [`Queue`] objects.
+#[derive(Debug)]
 pub struct Device {
     id: wgn::DeviceId,
     temp: Temp,
 }
 
 /// A handle to a GPU-accessible buffer.
+#[derive(Debug)]
 pub struct Buffer {
     id: wgn::BufferId,
 }
 
 /// A handle to a texture on the GPU.
+#[derive(Debug)]
 pub struct Texture {
     id: wgn::TextureId,
     owned: bool,
@@ -114,6 +112,7 @@ pub struct Texture {
 ///
 /// A `TextureView` object describes a texture and associated metadata needed by a
 /// [`RenderPipeline`] or [`BindGroup`].
+#[derive(Debug)]
 pub struct TextureView {
     id: wgn::TextureViewId,
     owned: bool,
@@ -124,6 +123,7 @@ pub struct TextureView {
 /// A `Sampler` object defines how a pipeline will sample from a [`TextureView`]. Samplers define
 /// image filters (including anisotropy) and address (wrapping) modes, among other things. See
 /// the documentation for [`SamplerDescriptor`] for more information.
+#[derive(Debug)]
 pub struct Sampler {
     id: wgn::SamplerId,
 }
@@ -132,6 +132,7 @@ pub struct Sampler {
 ///
 /// A `Surface` represents a platform-specific surface (e.g. a window) to which rendered images may
 /// be presented. A `Surface` may be created with [`Instance::create_surface`].
+#[derive(Debug)]
 pub struct Surface {
     id: wgn::SurfaceId,
 }
@@ -140,6 +141,7 @@ pub struct Surface {
 ///
 /// A `SwapChain` represents the image or series of images that will be presented to a [`Surface`].
 /// A `SwapChain` may be created with [`Device::create_swap_chain`].
+#[derive(Debug)]
 pub struct SwapChain {
     id: wgn::SwapChainId,
 }
@@ -150,6 +152,7 @@ pub struct SwapChain {
 /// create a [`BindGroupDescriptor`] object, which in turn can be used to create a [`BindGroup`]
 /// object with [`Device::create_bind_group`]. A series of `BindGroupLayout`s can also be used to
 /// create a [`PipelineLayoutDescriptor`], which can be used to create a [`PipelineLayout`].
+#[derive(Debug)]
 pub struct BindGroupLayout {
     id: wgn::BindGroupLayoutId,
 }
@@ -160,6 +163,7 @@ pub struct BindGroupLayout {
 /// [`BindGroupLayout`]. It can be created with [`Device::create_bind_group`]. A `BindGroup` can
 /// be bound to a particular [`RenderPass`] with [`RenderPass::set_bind_group`], or to a
 /// [`ComputePass`] with [`ComputePass::set_bind_group`].
+#[derive(Debug)]
 pub struct BindGroup {
     id: wgn::BindGroupId,
 }
@@ -175,6 +179,7 @@ impl Drop for BindGroup {
 /// A `ShaderModule` represents a compiled shader module on the GPU. It can be created by passing
 /// valid SPIR-V source code to [`Device::create_shader_module`]. Shader modules are used to define
 /// programmable stages of a pipeline.
+#[derive(Debug)]
 pub struct ShaderModule {
     id: wgn::ShaderModuleId,
 }
@@ -182,6 +187,7 @@ pub struct ShaderModule {
 /// An opaque handle to a pipeline layout.
 ///
 /// A `PipelineLayout` object describes the available binding groups of a pipeline.
+#[derive(Debug)]
 pub struct PipelineLayout {
     id: wgn::PipelineLayoutId,
 }
@@ -190,11 +196,13 @@ pub struct PipelineLayout {
 ///
 /// A `RenderPipeline` object represents a graphics pipeline and its stages, bindings, vertex
 /// buffers and targets. A `RenderPipeline` may be created with [`Device::create_render_pipeline`].
+#[derive(Debug)]
 pub struct RenderPipeline {
     id: wgn::RenderPipelineId,
 }
 
 /// A handle to a compute pipeline.
+#[derive(Debug)]
 pub struct ComputePipeline {
     id: wgn::ComputePipelineId,
 }
@@ -204,6 +212,7 @@ pub struct ComputePipeline {
 /// A `CommandBuffer` represents a complete sequence of commands that may be submitted to a command
 /// queue with [`Queue::submit`]. A `CommandBuffer` is obtained by recording a series of commands to
 /// a [`CommandEncoder`] and then calling [`CommandEncoder::finish`].
+#[derive(Debug)]
 pub struct CommandBuffer {
     id: wgn::CommandBufferId,
 }
@@ -215,17 +224,20 @@ pub struct CommandBuffer {
 ///
 /// When finished recording, call [`CommandEncoder::finish`] to obtain a [`CommandBuffer`] which may
 /// be submitted for execution.
+#[derive(Debug)]
 pub struct CommandEncoder {
     id: wgn::CommandEncoderId,
 }
 
 /// An in-progress recording of a render pass.
+#[derive(Debug)]
 pub struct RenderPass<'a> {
     id: wgn::RenderPassId,
     _parent: &'a mut CommandEncoder,
 }
 
 /// An in-progress recording of a compute pass.
+#[derive(Debug)]
 pub struct ComputePass<'a> {
     id: wgn::ComputePassId,
     _parent: &'a mut CommandEncoder,
@@ -234,12 +246,14 @@ pub struct ComputePass<'a> {
 /// A handle to a command queue on a device.
 ///
 /// A `Queue` executes finished [`CommandBuffer`] objects.
+#[derive(Debug)]
 pub struct Queue<'a> {
     id: wgn::QueueId,
     temp: &'a mut Temp,
 }
 
 /// A resource that can be bound to a pipeline.
+#[derive(Clone, Debug)]
 pub enum BindingResource<'a> {
     Buffer {
         buffer: &'a Buffer,
@@ -250,20 +264,47 @@ pub enum BindingResource<'a> {
 }
 
 /// A bindable resource and the slot to bind it to.
+#[derive(Clone, Debug)]
 pub struct Binding<'a> {
     pub binding: u32,
     pub resource: BindingResource<'a>,
 }
 
-/// A description of a bind group layout.
-///
-/// A `BindGroupLayoutDescriptor` can be passed to [`Device::create_bind_group_layout`] to obtain a
-/// [`BindGroupLayout`].
+/// Specific type of a binding..
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+pub enum BindingType {
+    UniformBuffer {
+        dynamic: bool,
+    },
+    StorageBuffer {
+        dynamic: bool,
+        readonly: bool,
+    },
+    Sampler,
+    SampledTexture {
+        multisampled: bool,
+        dimension: TextureViewDimension,
+    },
+    StorageTexture {
+        dimension: TextureViewDimension,
+    },
+}
+
+/// A description of a single binding inside a bind group.
+#[derive(Clone, Debug, Hash)]
+pub struct BindGroupLayoutBinding {
+    pub binding: u32,
+    pub visibility: ShaderStage,
+    pub ty: BindingType,
+}
+
+#[derive(Clone, Debug)]
 pub struct BindGroupLayoutDescriptor<'a> {
     pub bindings: &'a [BindGroupLayoutBinding],
 }
 
 /// A description of a group of bindings and the resources to be bound.
+#[derive(Clone, Debug)]
 pub struct BindGroupDescriptor<'a> {
     /// The layout for this bind group.
     pub layout: &'a BindGroupLayout,
@@ -276,12 +317,14 @@ pub struct BindGroupDescriptor<'a> {
 ///
 /// A `PipelineLayoutDescriptor` can be passed to [`Device::create_pipeline_layout`] to obtain a
 /// [`PipelineLayout`].
+#[derive(Clone, Debug)]
 pub struct PipelineLayoutDescriptor<'a> {
     pub bind_group_layouts: &'a [&'a BindGroupLayout],
 }
 
 /// A description of a programmable pipeline stage.
-pub struct PipelineStageDescriptor<'a> {
+#[derive(Clone, Debug)]
+pub struct ProgrammableStageDescriptor<'a> {
     /// The compiled shader module for this stage.
     pub module: &'a ShaderModule,
 
@@ -302,18 +345,19 @@ pub struct VertexBufferDescriptor<'a> {
 }
 
 /// A complete description of a render (graphics) pipeline.
+#[derive(Clone, Debug)]
 pub struct RenderPipelineDescriptor<'a> {
     /// The layout of bind groups for this pipeline.
     pub layout: &'a PipelineLayout,
 
     /// The compiled vertex stage and its entry point.
-    pub vertex_stage: PipelineStageDescriptor<'a>,
+    pub vertex_stage: ProgrammableStageDescriptor<'a>,
 
     /// The compiled fragment stage and its entry point, if any.
-    pub fragment_stage: Option<PipelineStageDescriptor<'a>>,
+    pub fragment_stage: Option<ProgrammableStageDescriptor<'a>>,
 
     /// The rasterization process for this pipeline.
-    pub rasterization_state: RasterizationStateDescriptor,
+    pub rasterization_state: Option<RasterizationStateDescriptor>,
 
     /// The primitive topology used to interpret vertices.
     pub primitive_topology: PrimitiveTopology,
@@ -332,18 +376,30 @@ pub struct RenderPipelineDescriptor<'a> {
 
     /// The number of samples calculated per pixel (for MSAA).
     pub sample_count: u32,
+
+    /// Bitmask that restricts the samples of a pixel modified by this pipeline.
+    pub sample_mask: u32,
+
+    /// When enabled, produces another sample mask per pixel based on the alpha output value, that
+    /// is ANDed with the sample_mask and the primitive coverage to restrict the set of samples
+    /// affected by a primitive.
+    /// The implicit mask produced for alpha of zero is guaranteed to be zero, and for alpha of one
+    /// is guaranteed to be all 1-s.
+    pub alpha_to_coverage_enabled: bool,
 }
 
 /// A complete description of a compute pipeline.
+#[derive(Clone, Debug)]
 pub struct ComputePipelineDescriptor<'a> {
     /// The layout of bind groups for this pipeline.
     pub layout: &'a PipelineLayout,
 
     /// The compiled compute stage and its entry point.
-    pub compute_stage: PipelineStageDescriptor<'a>,
+    pub compute_stage: ProgrammableStageDescriptor<'a>,
 }
 
 /// A description of all the attachments of a render pass.
+#[derive(Debug)]
 pub struct RenderPassDescriptor<'a> {
     /// The color attachments of the render pass.
     pub color_attachments: &'a [RenderPassColorAttachmentDescriptor<'a>],
@@ -354,6 +410,7 @@ pub struct RenderPassDescriptor<'a> {
 }
 
 /// A description of a color attachment.
+#[derive(Clone, Debug)]
 pub struct RenderPassColorAttachmentDescriptor<'a> {
     /// The actual color attachment.
     pub attachment: &'a TextureView,
@@ -372,6 +429,7 @@ pub struct RenderPassColorAttachmentDescriptor<'a> {
 }
 
 /// A swap chain image that can be rendered to.
+#[derive(Debug)]
 pub struct SwapChainOutput<'a> {
     pub texture: Texture,
     pub view: TextureView,
@@ -379,6 +437,7 @@ pub struct SwapChainOutput<'a> {
 }
 
 /// A view of a buffer which can be used to copy to or from a texture.
+#[derive(Clone, Debug)]
 pub struct BufferCopyView<'a> {
     /// The buffer to be copied to or from.
     pub buffer: &'a Buffer,
@@ -405,6 +464,7 @@ impl<'a> BufferCopyView<'a> {
 }
 
 /// A view of a texture which can be used to copy to or from a buffer or another texture.
+#[derive(Clone, Debug)]
 pub struct TextureCopyView<'a> {
     /// The texture to be copied to or from.
     pub texture: &'a Texture,
@@ -459,83 +519,33 @@ where
     }
 }
 
-impl Instance {
-    /// Create a new `Instance` object.
-    #[cfg(not(feature = "gl"))]
-    pub fn new() -> Self {
-        Instance {
-            id: wgn::wgpu_create_instance(),
-        }
-    }
-
-    #[cfg(feature = "gl")]
-    pub fn new(windowed_context: wgn::glutin::WindowedContext) -> Self {
-        Instance {
-            id: wgn::wgpu_create_gl_instance(windowed_context),
-        }
-    }
-
-    /// Retrieves an [`Adapter`] which matches the given descriptor.
-    ///
-    /// If there are no available adapters matching `desc`, this function will return another
-    /// adapter.
-    ///
-    /// # Panics
-    ///
-    /// Panics if there are no available adapters. This will occur if none of the graphics backends
-    /// are enabled.
-    pub fn get_adapter(&self, desc: &AdapterDescriptor) -> Adapter {
-        Adapter {
-            id: wgn::wgpu_instance_get_adapter(self.id, desc),
-        }
-    }
-
-    /// Creates a surface from a window.
-    #[cfg(not(feature = "gl"))]
-    pub fn create_surface(&self, window: &winit::Window) -> Surface {
+impl Surface {
+    /// Creates a surface from a raw window handle.
+    pub fn create<W: raw_window_handle::HasRawWindowHandle>(window: &W) -> Self {
         Surface {
-            id: wgn::wgpu_instance_create_surface_from_winit(self.id, window),
+            id: wgn::wgpu_create_surface(window.raw_window_handle()),
         }
     }
 
-    #[cfg(feature = "gl")]
-    pub fn get_surface(&self) -> Surface {
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    pub fn create_surface_from_core_animation_layer(layer: *mut std::ffi::c_void) -> Self {
         Surface {
-            id: wgn::wgpu_instance_get_gl_surface(self.id),
-        }
-    }
-
-    #[cfg(not(feature = "gl"))]
-    pub fn create_surface_from_xlib(
-        &self,
-        display: *mut *const std::ffi::c_void,
-        window: u64,
-    ) -> Surface {
-        Surface {
-            id: wgn::wgpu_instance_create_surface_from_xlib(self.id, display, window),
-        }
-    }
-
-    #[cfg(not(feature = "gl"))]
-    pub fn create_surface_from_macos_layer(&self, layer: *mut std::ffi::c_void) -> Surface {
-        Surface {
-            id: wgn::wgpu_instance_create_surface_from_macos_layer(self.id, layer),
-        }
-    }
-
-    #[cfg(not(feature = "gl"))]
-    pub fn create_surface_from_windows_hwnd(
-        &self,
-        hinstance: *mut std::ffi::c_void,
-        hwnd: *mut std::ffi::c_void,
-    ) -> Surface {
-        Surface {
-            id: wgn::wgpu_instance_create_surface_from_windows_hwnd(self.id, hinstance, hwnd),
+            id: wgn::wgpu_create_surface_from_metal_layer(layer),
         }
     }
 }
 
 impl Adapter {
+    /// Retrieves an [`Adapter`] which matches the given options.
+    ///
+    /// Some options are "soft", so treated as non-mandatory. Others are "hard".
+    ///
+    /// If no adapters are found that suffice all the "hard" options, `None` is returned.
+    pub fn request(options: &wgn::RequestAdapterOptions) -> Option<Self> {
+        wgn::request_adapter(options, &[])
+            .map(|id| Adapter { id })
+    }
+
     /// Requests a connection to a physical device, creating a logical device.
     ///
     /// # Panics
@@ -543,7 +553,7 @@ impl Adapter {
     /// Panics if the extensions specified by `desc` are not supported by this adapter.
     pub fn request_device(&self, desc: &DeviceDescriptor) -> Device {
         Device {
-            id: wgn::wgpu_adapter_request_device(self.id, desc),
+            id: wgn::wgpu_adapter_request_device(self.id, Some(desc)),
             temp: Temp::default(),
         }
     }
@@ -556,9 +566,9 @@ impl Device {
     }
 
     /// Creates a shader module from SPIR-V source code.
-    pub fn create_shader_module(&self, spv: &[u8]) -> ShaderModule {
+    pub fn create_shader_module(&self, spv: &[u32]) -> ShaderModule {
         let desc = wgn::ShaderModuleDescriptor {
-            code: wgn::ByteArray {
+            code: wgn::U32Array {
                 bytes: spv.as_ptr(),
                 length: spv.len(),
             },
@@ -579,7 +589,7 @@ impl Device {
     /// Creates an empty [`CommandEncoder`].
     pub fn create_command_encoder(&self, desc: &CommandEncoderDescriptor) -> CommandEncoder {
         CommandEncoder {
-            id: wgn::wgpu_device_create_command_encoder(self.id, desc),
+            id: wgn::wgpu_device_create_command_encoder(self.id, Some(desc)),
         }
     }
 
@@ -622,12 +632,41 @@ impl Device {
 
     /// Creates a bind group layout.
     pub fn create_bind_group_layout(&self, desc: &BindGroupLayoutDescriptor) -> BindGroupLayout {
+        let temp_layouts = desc.bindings
+            .iter()
+            .map(|bind| wgn::BindGroupLayoutBinding {
+                binding: bind.binding,
+                visibility: bind.visibility,
+                ty: match bind.ty {
+                    BindingType::UniformBuffer { .. } => wgn::BindingType::UniformBuffer,
+                    BindingType::StorageBuffer { readonly: false, .. } => wgn::BindingType::StorageBuffer,
+                    BindingType::StorageBuffer { readonly: true, .. } => wgn::BindingType::ReadonlyStorageBuffer,
+                    BindingType::Sampler => wgn::BindingType::Sampler,
+                    BindingType::SampledTexture { .. } => wgn::BindingType::SampledTexture,
+                    BindingType::StorageTexture { .. } => wgn::BindingType::StorageTexture,
+                },
+                dynamic: match bind.ty {
+                    BindingType::UniformBuffer { dynamic } |
+                    BindingType::StorageBuffer { dynamic, .. } => dynamic,
+                    _ => false,
+                },
+                multisampled: match bind.ty {
+                    BindingType::SampledTexture { multisampled, .. } => multisampled,
+                    _ => false,
+                },
+                texture_dimension: match bind.ty {
+                    BindingType::SampledTexture { dimension, .. } |
+                    BindingType::StorageTexture { dimension } => dimension,
+                    _ => TextureViewDimension::D2,
+                },
+            })
+            .collect::<Vec<_>>();
         BindGroupLayout {
             id: wgn::wgpu_device_create_bind_group_layout(
                 self.id,
                 &wgn::BindGroupLayoutDescriptor {
-                    bindings: desc.bindings.as_ptr(),
-                    bindings_length: desc.bindings.len(),
+                    bindings: temp_layouts.as_ptr(),
+                    bindings_length: temp_layouts.len(),
                 },
             ),
         }
@@ -655,14 +694,14 @@ impl Device {
     /// Creates a render pipeline.
     pub fn create_render_pipeline(&self, desc: &RenderPipelineDescriptor) -> RenderPipeline {
         let vertex_entry_point = CString::new(desc.vertex_stage.entry_point).unwrap();
-        let vertex_stage = wgn::PipelineStageDescriptor {
+        let vertex_stage = wgn::ProgrammableStageDescriptor {
             module: desc.vertex_stage.module.id,
             entry_point: vertex_entry_point.as_ptr(),
         };
         let (_fragment_entry_point, fragment_stage) =
             if let Some(fragment_stage) = &desc.fragment_stage {
                 let fragment_entry_point = CString::new(fragment_stage.entry_point).unwrap();
-                let fragment_stage = wgn::PipelineStageDescriptor {
+                let fragment_stage = wgn::ProgrammableStageDescriptor {
                     module: fragment_stage.module.id,
                     entry_point: fragment_entry_point.as_ptr(),
                 };
@@ -692,7 +731,9 @@ impl Device {
                     fragment_stage: fragment_stage
                         .as_ref()
                         .map_or(ptr::null(), |fs| fs as *const _),
-                    rasterization_state: desc.rasterization_state.clone(),
+                    rasterization_state: desc.rasterization_state
+                        .as_ref()
+                        .map_or(ptr::null(), |p| p as *const _),
                     primitive_topology: desc.primitive_topology,
                     color_states: temp_color_states.as_ptr(),
                     color_states_length: temp_color_states.len(),
@@ -706,6 +747,8 @@ impl Device {
                         vertex_buffers_length: temp_vertex_buffers.len(),
                     },
                     sample_count: desc.sample_count,
+                    sample_mask: desc.sample_mask,
+                    alpha_to_coverage_enabled: desc.alpha_to_coverage_enabled,
                 },
             ),
         }
@@ -720,7 +763,7 @@ impl Device {
                 self.id,
                 &wgn::ComputePipelineDescriptor {
                     layout: desc.layout.id,
-                    compute_stage: wgn::PipelineStageDescriptor {
+                    compute_stage: wgn::ProgrammableStageDescriptor {
                         module: desc.compute_stage.module.id,
                         entry_point: entry_point.as_ptr(),
                     },
@@ -741,7 +784,7 @@ impl Device {
     /// This returns a [`CreateBufferMapped<T>`], which exposes a `&mut [T]`. The actual [`Buffer`]
     /// will not be created until calling [`CreateBufferMapped::finish`].
     pub fn create_buffer_mapped<'a, T>(
-        &self,
+        &'a self,
         count: usize,
         usage: BufferUsage,
     ) -> CreateBufferMapped<'a, T>
@@ -944,18 +987,15 @@ impl Texture {
     /// Creates a view of this texture.
     pub fn create_view(&self, desc: &TextureViewDescriptor) -> TextureView {
         TextureView {
-            id: wgn::wgpu_texture_create_view(self.id, desc),
+            id: wgn::wgpu_texture_create_view(self.id, Some(desc)),
             owned: true,
         }
     }
 
-    /// Creates the default view of this texture.
-    ///
-    /// The default view reflects the full dimensions and size of the texture and matches its
-    /// format.
+    /// Creates a default view of this whole texture.
     pub fn create_default_view(&self) -> TextureView {
         TextureView {
-            id: wgn::wgpu_texture_create_default_view(self.id),
+            id: wgn::wgpu_texture_create_view(self.id, None),
             owned: true,
         }
     }
@@ -981,7 +1021,7 @@ impl CommandEncoder {
     /// Finishes recording and returns a [`CommandBuffer`] that can be submitted for execution.
     pub fn finish(self) -> CommandBuffer {
         CommandBuffer {
-            id: wgn::wgpu_command_encoder_finish(self.id),
+            id: wgn::wgpu_command_encoder_finish(self.id, None),
         }
     }
 
@@ -1034,7 +1074,7 @@ impl CommandEncoder {
     /// This function returns a [`ComputePass`] object which records a single compute pass.
     pub fn begin_compute_pass(&mut self) -> ComputePass {
         ComputePass {
-            id: wgn::wgpu_command_encoder_begin_compute_pass(self.id),
+            id: wgn::wgpu_command_encoder_begin_compute_pass(self.id, None),
             _parent: self,
         }
     }
@@ -1048,7 +1088,7 @@ impl CommandEncoder {
         destination_offset: BufferAddress,
         copy_size: BufferAddress,
     ) {
-        wgn::wgpu_command_buffer_copy_buffer_to_buffer(
+        wgn::wgpu_command_encoder_copy_buffer_to_buffer(
             self.id,
             source.id,
             source_offset,
@@ -1065,7 +1105,7 @@ impl CommandEncoder {
         destination: TextureCopyView,
         copy_size: Extent3d,
     ) {
-        wgn::wgpu_command_buffer_copy_buffer_to_texture(
+        wgn::wgpu_command_encoder_copy_buffer_to_texture(
             self.id,
             &source.into_native(),
             &destination.into_native(),
@@ -1080,7 +1120,7 @@ impl CommandEncoder {
         destination: BufferCopyView,
         copy_size: Extent3d,
     ) {
-        wgn::wgpu_command_buffer_copy_texture_to_buffer(
+        wgn::wgpu_command_encoder_copy_texture_to_buffer(
             self.id,
             &source.into_native(),
             &destination.into_native(),
@@ -1095,7 +1135,7 @@ impl CommandEncoder {
         destination: TextureCopyView,
         copy_size: Extent3d,
     ) {
-        wgn::wgpu_command_buffer_copy_texture_to_texture(
+        wgn::wgpu_command_encoder_copy_texture_to_texture(
             self.id,
             &source.into_native(),
             &destination.into_native(),
@@ -1140,11 +1180,15 @@ impl<'a> RenderPass<'a> {
         wgn::wgpu_render_pass_set_index_buffer(self.id, buffer.id, offset);
     }
 
-    /// Sets the active vertex buffers.
+    /// Sets the active vertex buffers, starting from `start_slot`.
     ///
     /// Each element of `buffer_pairs` describes a vertex buffer and an offset in bytes into that
     /// buffer. The offset must be aligned to a multiple of 4 bytes.
-    pub fn set_vertex_buffers(&mut self, buffer_pairs: &[(&Buffer, BufferAddress)]) {
+    pub fn set_vertex_buffers(
+        &mut self,
+        start_slot: u32,
+        buffer_pairs: &[(&Buffer, BufferAddress)],
+    ) {
         let mut buffers = Vec::new();
         let mut offsets = Vec::new();
         for &(buffer, offset) in buffer_pairs {
@@ -1153,6 +1197,7 @@ impl<'a> RenderPass<'a> {
         }
         wgn::wgpu_render_pass_set_vertex_buffers(
             self.id,
+            start_slot,
             buffers.as_ptr(),
             offsets.as_ptr(),
             buffer_pairs.len(),
@@ -1166,8 +1211,15 @@ impl<'a> RenderPass<'a> {
         wgn::wgpu_render_pass_set_scissor_rect(self.id, x, y, w, h)
     }
 
+    /// Sets the viewport region.
+    ///
+    /// Subsequent draw calls will draw any fragments in this region.
+    pub fn set_viewport(&mut self, x: f32, y: f32, w: f32, h: f32, min_depth: f32, max_depth: f32) {
+        wgn::wgpu_render_pass_set_viewport(self.id, x, y, w, h, min_depth, max_depth)
+    }
+
     /// Sets the stencil reference.
-    /// 
+    ///
     /// Subsequent stencil tests will test against this value.
     pub fn set_stencil_reference(&mut self, reference: u32) {
         wgn::wgpu_render_pass_set_stencil_reference(self.id, reference)
@@ -1204,7 +1256,9 @@ impl<'a> RenderPass<'a> {
 
 impl<'a> Drop for RenderPass<'a> {
     fn drop(&mut self) {
-        wgn::wgpu_render_pass_end_pass(self.id);
+        if !thread::panicking() {
+            wgn::wgpu_render_pass_end_pass(self.id);
+        }
     }
 }
 
@@ -1240,7 +1294,9 @@ impl<'a> ComputePass<'a> {
 
 impl<'a> Drop for ComputePass<'a> {
     fn drop(&mut self) {
-        wgn::wgpu_compute_pass_end_pass(self.id);
+        if !thread::panicking() {
+            wgn::wgpu_compute_pass_end_pass(self.id);
+        }
     }
 }
 
@@ -1262,7 +1318,9 @@ impl<'a> Queue<'a> {
 
 impl<'a> Drop for SwapChainOutput<'a> {
     fn drop(&mut self) {
-        wgn::wgpu_swap_chain_present(*self.swap_chain_id);
+        if !thread::panicking() {
+            wgn::wgpu_swap_chain_present(*self.swap_chain_id);
+        }
     }
 }
 
