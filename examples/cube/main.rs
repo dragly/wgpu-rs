@@ -16,19 +16,14 @@ pub enum ShaderStage {
     Compute,
 }
 
-pub fn load_glsl(code: &str, stage: ShaderStage) -> Vec<u8> {
-    use std::io::Read;
-
+pub fn load_glsl(code: &str, stage: ShaderStage) -> Vec<u32> {
     let ty = match stage {
         ShaderStage::Vertex => glsl_to_spirv::ShaderType::Vertex,
         ShaderStage::Fragment => glsl_to_spirv::ShaderType::Fragment,
         ShaderStage::Compute => glsl_to_spirv::ShaderType::Compute,
     };
 
-    let mut output = glsl_to_spirv::compile(&code, ty).unwrap();
-    let mut spv = Vec::new();
-    output.read_to_end(&mut spv).unwrap();
-    spv
+    wgpu::read_spirv(glsl_to_spirv::compile(&code, ty).unwrap()).unwrap()
 }
 
 #[derive(Clone, Copy)]
@@ -108,30 +103,26 @@ fn generate_matrix(aspect_ratio: f32) -> cgmath::Matrix4<f32> {
 }
 
 fn main() {
-    use wgpu::winit::{
-        ElementState, Event, EventsLoop, KeyboardInput, VirtualKeyCode, WindowEvent,
+    use winit::{
+        event_loop::{ControlFlow, EventLoop},
+        event,
     };
 
     env_logger::init();
 
-    let mut events_loop = EventsLoop::new();
+    let mut events_loop = EventLoop::new();
 
     info!("Initializing the window...");
 
     #[cfg(not(feature = "gl"))]
-    let (_window, instance, hidpi_factor, size, surface) = {
-        use wgpu::winit::Window;
-
-        let instance = wgpu::Instance::new();
-
-        let window = Window::new(&events_loop).unwrap();
+    let (_window, hidpi_factor, size, surface) = {
+        let window = winit::window::Window::new(&events_loop).unwrap();
         window.set_title("Test");
-        let hidpi_factor = window.get_hidpi_factor();
-        let size = window.get_inner_size().unwrap().to_physical(hidpi_factor);
+        let hidpi_factor = window.hidpi_factor();
+        let size = window.inner_size().to_physical(hidpi_factor);
 
-        let surface = instance.create_surface(&window);
-
-        (window, instance, hidpi_factor, size, surface)
+        let surface = wgpu::Surface::create(&window);
+        (window, hidpi_factor, size, surface)
     };
 
     #[cfg(feature = "gl")]
@@ -154,9 +145,10 @@ fn main() {
         (instance, hidpi_factor, size, surface)
     };
 
-    let adapter = instance.get_adapter(&wgpu::AdapterDescriptor {
-        power_preference: wgpu::PowerPreference::LowPower,
-    });
+    let adapter = wgpu::Adapter::request(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::Default,
+        backends: wgpu::BackendBit::PRIMARY,
+    }).unwrap();
 
     let mut device = adapter.request_device(&wgpu::DeviceDescriptor {
         extensions: wgpu::Extensions {
@@ -224,7 +216,9 @@ fn main() {
         bindings: &[wgpu::BindGroupLayoutBinding {
             binding: 0,
             visibility: wgpu::ShaderStage::VERTEX,
-            ty: wgpu::BindingType::UniformBuffer,
+            ty: wgpu::BindingType::UniformBuffer {
+                dynamic: false,
+            },
         }],
     });
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -236,7 +230,7 @@ fn main() {
     let uniform_buf = device
         .create_buffer_mapped(
             16,
-            wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::TRANSFER_DST,
+            wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
         )
         .fill_from_slice(mx_ref);
 
@@ -265,7 +259,7 @@ fn main() {
     });
     let cs_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         layout: &cs_pipeline_layout,
-        compute_stage: wgpu::PipelineStageDescriptor {
+        compute_stage: wgpu::ProgrammableStageDescriptor {
             module: &cs_module,
             entry_point: "main",
         },
@@ -273,21 +267,21 @@ fn main() {
 
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         layout: &pipeline_layout,
-        vertex_stage: wgpu::PipelineStageDescriptor {
+        vertex_stage: wgpu::ProgrammableStageDescriptor {
             module: &vs_module,
             entry_point: "main",
         },
-        fragment_stage: Some(wgpu::PipelineStageDescriptor {
+        fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
             module: &fs_module,
             entry_point: "main",
         }),
-        rasterization_state: wgpu::RasterizationStateDescriptor {
+        rasterization_state: Some(wgpu::RasterizationStateDescriptor {
             front_face: wgpu::FrontFace::Ccw,
             cull_mode: wgpu::CullMode::Back,
             depth_bias: 0,
             depth_bias_slope_scale: 0.0,
             depth_bias_clamp: 0.0,
-        },
+        }),
         primitive_topology: wgpu::PrimitiveTopology::TriangleList,
         color_states: &[wgpu::ColorStateDescriptor {
             format: sc_desc.format,
@@ -332,6 +326,8 @@ fn main() {
             },
         ],
         sample_count: 1,
+        sample_mask: !0,
+        alpha_to_coverage_enabled: false,
     });
 
     info!("Entering render loop...");
@@ -366,9 +362,9 @@ fn main() {
             rpass.set_pipeline(&pipeline);
             rpass.set_bind_group(0, &bind_group, &[]);
             rpass.set_index_buffer(&index_buf, 0);
-            rpass.set_vertex_buffers(&[(&vertex_buf, 0), (&instance_buf, 0)]);
+            rpass.set_vertex_buffers(0, &[(&vertex_buf, 0), (&instance_buf, 0)]);
             rpass.draw_indexed(0..index_data.len() as u32, 0, 0..instance_data.len() as u32);
-            rpass.set_vertex_buffers(&[(&vertex_buf, 0), (&big_instance_buf, 0)]);
+            rpass.set_vertex_buffers(0, &[(&vertex_buf, 0), (&big_instance_buf, 0)]);
             rpass.draw_indexed(0..index_data.len() as u32, 0, 0..big_instance_data.len() as u32);
         }
 
